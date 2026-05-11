@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # =============================================================================
-# check_updates.sh — DataFlow 仓库变更感知脚本
+# check_updates.sh — DataFlow-KG 仓库变更感知脚本
 #
 # 功能：
 #   1. 检测本地仓库是否有新算子文件（相对于上一次 commit）
 #   2. 列出所有已注册算子名，与 knowledge_base.md 中的记录对比
-#   3. 通过 GitHub CLI 感知上游 OpenDCAI/DataFlow 是否有涉及算子的新 PR/Issue
+#   3. 通过 GitHub CLI 感知上游 OpenDCAI/DataFlow-KG 是否有涉及算子的新 PR/Issue
 #
 # 使用方式：
-#   cd /path/to/DataFlow  # 先 cd 到 DataFlow 仓库根目录
-#   bash /path/to/DataFlow-Skills/dataflow-dev/scripts/check_updates.sh
+#   cd /path/to/DataFlow-KG  # 先 cd 到 DataFlow-KG 仓库根目录
+#   bash /path/to/DataFlow-KG-Skills/dataflow-dev/scripts/check_updates.sh
 #
 # 前提：
-#   - Python 3.10+，DataFlow 已安装（pip install open-dataflow）
+#   - Python 3.10+，DataFlow-KG 已安装（pip install open-dataflow-kg）
 #   - 可选：gh CLI 已认证（gh auth login），用于感知上游变更
 # =============================================================================
 
@@ -21,17 +21,17 @@ set -euo pipefail
 REPO_ROOT="${1:-$(pwd)}"
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 KB_FILE="${SKILL_DIR}/context/knowledge_base.md"
-UPSTREAM_REPO="OpenDCAI/DataFlow"
+UPSTREAM_REPO="OpenDCAI/DataFlow-KG"
 
 echo "========================================"
-echo "DataFlow 知识库变更感知脚本"
+echo "DataFlow-KG 知识库变更感知脚本"
 echo "仓库路径：${REPO_ROOT}"
 echo "========================================"
 echo ""
 
 # ─── 检查是否在 git 仓库中 ─────────────────────────────────────────────────
 if ! git -C "${REPO_ROOT}" rev-parse --is-inside-work-tree &>/dev/null; then
-    echo "❌ 错误：${REPO_ROOT} 不是 git 仓库，请先 cd 到 DataFlow 仓库根目录"
+    echo "❌ 错误：${REPO_ROOT} 不是 git 仓库，请先 cd 到 DataFlow-KG 仓库根目录"
     exit 1
 fi
 
@@ -55,11 +55,14 @@ echo "▶ 最近一次提交变更的文件："
 git -C "${REPO_ROOT}" diff --name-only HEAD~1 HEAD 2>/dev/null || echo "（无法对比，可能是首次提交）"
 
 # =============================================================================
-# Part 2：新算子文件检测（检测 diff-filter=A：新增文件）
+# Part 2：新算子文件检测（KG 算子分布在多个子模块下）
 # =============================================================================
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "【Part 2】最近新增的算子文件（30 次提交内）"
+echo "  覆盖范围：general_kg / domain_kg / temporal_kg / graph_reasoning"
+echo "            graph_rag / hyper_relation_kg / multi_model_kg"
+echo "            commonsense_kg / pdf2text"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
@@ -78,7 +81,6 @@ else
     echo "⚠️  检测到以下新增算子文件，可能需要更新知识库："
     echo ""
 
-    # 列出新增的具体文件
     git -C "${REPO_ROOT}" log --oneline --diff-filter=A \
         --name-only --format="" \
         -- 'dataflow/operators/**/*.py' \
@@ -91,11 +93,11 @@ else
 fi
 
 # =============================================================================
-# Part 3：列出所有已注册算子名
+# Part 3：列出所有已注册算子名（KG 使用 LazyLoader，需全量导入触发注册）
 # =============================================================================
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "【Part 3】当前注册的所有算子名"
+echo "【Part 3】当前注册的所有 KG 算子名"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
@@ -115,7 +117,7 @@ except Exception as e:
 )
 
 if [[ -z "${REGISTERED_OPERATORS}" ]]; then
-    echo "⚠️  无法加载 OPERATOR_REGISTRY（确保 DataFlow 已安装且 Python 路径正确）"
+    echo "⚠️  无法加载 OPERATOR_REGISTRY（确保 DataFlow-KG 已安装且 Python 路径正确）"
 else
     OPERATOR_COUNT=$(echo "${REGISTERED_OPERATORS}" | wc -l | tr -d ' ')
     echo "共注册 ${OPERATOR_COUNT} 个算子："
@@ -199,8 +201,8 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 echo "若发现需要更新知识库，请："
 echo "  1. 读取新算子文件，提取：类名、__init__ 参数、run() 参数、get_desc() 说明"
-echo "  2. 在 context/knowledge_base.md §八 对应模块下补充算子条目"
-echo "  3. 在 context/dev_notes.md §七「版本变更记录」中追加条目"
+echo "  2. 在 context/knowledge_base.md 对应模块下补充算子条目"
+echo "  3. 在 context/dev_notes.md 六、版本变更记录中追加条目"
 echo "  4. 提交说明：docs: sync knowledge_base with new operators from <PR/commit>"
 echo ""
 echo "========================================"

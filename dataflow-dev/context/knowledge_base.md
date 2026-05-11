@@ -1,91 +1,132 @@
-# DataFlow 知识库（Knowledge Base）
+﻿# DataFlow-KG 知识库（Knowledge Base）
 
-> 版本：1.0.10（main 分支）
-> 仓库：https://github.com/OpenDCAI/DataFlow.git
-> 官方文档：https://opendcai.github.io/DataFlow-Doc/zh/
-> 本文件用于在无上下文情况下理解、使用和开发 DataFlow。
+> 仓库：https://github.com/OpenDCAI/DataFlow-KG.git
+> 官方文档：https://zhp-li197.github.io/DataFlow-KG-Doc/zh/
+> 本文件用于在无上下文情况下理解、使用和开发 DataFlow-KG。
 > **此文件为只读参考**，如需更新请通过 SKILL.md 的"知识库更新感知流程"操作。
 
 ---
 
 ## 一、项目总体概述
 
-DataFlow 是一个**以数据为中心（Data-Centric AI）**的数据治理系统，面向大语言模型（LLM）的训练数据制备。核心定位：
+DataFlow-KG 是面向**知识图谱（Knowledge Graph）**的 LLM 驱动数据处理系统，基于 DataFlow 生态构建，核心定位：
 
-- **修正、扩增、评估与过滤**低质量数据，生成高质量 LLM 训练数据集
-- 支持 PDF 文档、纯文本、爬虫数据、多模态等多种数据来源
-- 当前版本：`1.0.10`（`dataflow/version.py`）
+- 从原始文本**抽取、验证、精化、评估**结构化知识图谱数据
+- 支持通用 KG、常识 KG、时序 KG、超关系 KG、多模态 KG、Graph RAG、图推理及多种领域 KG（金融/医学/地理/法律/学术）
 - Python 要求：`>= 3.10`
-- 包名：`open-dataflow`（PyPI）
+- 当前版本：`0.9.4`（`dataflow/version.py`）
+- CLI 命令：`dfkg`
+- 包名：`dataflow-kg`（PyPI ）（`pip install dataflow-kg`）
 
 ### 四大核心组成
 
 | 组件 | 说明 |
 |------|------|
-| **算子（Operator）** | 原子性数据处理单元，基于规则/DL模型/LLM |
-| **流水线（Pipeline）** | 有序连接算子，针对具体数据处理场景 |
-| **提示词（Prompt）** | 支持注册和映射的提示词模板 |
-| **LLM Serving** | 统一封装本地模型和API推理 |
+| **算子（Operator）** | 原子性 KG 处理单元，支持 generate / filter / refine/ eval 四类（各模块按需包含） |
+| **流水线（Pipeline）** | 有序连接算子，针对具体 KG 场景（构建/推理/检索/领域应用） |
+| **提示词（Prompt）** | KG 结构化输出专用模板，支持三元组/四元组/QA 等多种格式 |
+| **LLM Serving** | 统一封装本地模型和 API 推理 |
 
 ---
 
 ## 二、目录结构
 
 ```
-DataFlow/
+DataFlow-KG/
 ├── dataflow/
-│   ├── __init__.py          # 包入口，导出 utils、operators、prompts、logger
-│   ├── version.py           # 版本号 1.0.10
-│   ├── logger.py            # 日志系统（colorlog，自定义 SUCCESS 级别）
-│   ├── cli.py               # CLI 入口（Typer）
-│   ├── core/                # 抽象基类层
-│   │   ├── operator.py      # OperatorABC, get_operator()
-│   │   ├── llm_serving.py   # LLMServingABC
-│   │   ├── wrapper.py       # WrapperABC
-│   │   ├── prompt.py        # PromptABC, DIYPromptABC, @prompt_restrict 装饰器
-│   │   └── __init__.py      # 导出 OPERATOR_CLASSES, LLM_SERVING_CLASSES 等
-│   ├── pipeline/
-│   │   ├── Pipeline.py      # PipelineABC, BatchedPipelineABC, StreamBatchedPipelineABC
-│   │   └── nodes.py         # OperatorNode, KeyNode（DAG 节点）
-│   ├── operators/           # 所有算子实现
-│   │   ├── general_text/    # 通用文本算子
-│   │   ├── text_sft/        # SFT 指令微调算子
-│   │   ├── text_pt/         # 预训练文本算子
-│   │   ├── reasoning/       # 推理数据算子
-│   │   ├── code/            # 代码数据算子
-│   │   ├── core_text/       # 核心文本算子
-│   │   ├── core_vision/     # 视觉算子
-│   │   ├── core_speech/     # 语音算子
-│   │   ├── agentic_rag/     # AgenticRAG 算子
-│   │   ├── chemistry/       # 化学领域算子
-│   │   ├── conversations/   # 对话数据算子
-│   │   ├── knowledge_cleaning/ # 知识库清洗算子
-│   │   ├── pdf2vqa/         # PDF→VQA 算子
-│   │   └── text2sql/        # Text→SQL 算子
-│   ├── prompts/             # 提示词模板
-│   │   ├── general_text.py  # 通用文本 Prompt
-│   │   ├── reasoning/       # 推理 Prompt
-│   │   └── __init__.py
-│   ├── serving/             # LLM/VLM 服务封装
-│   │   ├── api_llm_serving_request.py  # 通用 HTTP API（OpenAI 兼容）
-│   │   ├── lite_llm_serving.py         # LiteLLM 多提供商
-│   │   ├── local_model_llm_serving.py  # vLLM / SGLang 本地模型
-│   │   ├── localhost_llm_api_serving.py
-│   │   ├── LocalSentenceLLMServing.py  # Embedding 服务
-│   │   ├── light_rag_serving.py
-│   │   ├── flash_rag_serving.py
-│   │   └── __init__.py
-│   ├── utils/
-│   │   ├── registry.py      # Registry + LazyLoader（核心注册机制）
-│   │   ├── storage.py       # DataFlowStorage, FileStorage, LazyFileStorage, DummyStorage
-│   │   └── __init__.py      # 导出 OPERATOR_REGISTRY, PROMPT_REGISTRY
-│   ├── wrapper/
-│   │   ├── auto_op.py       # AutoOP, OPRuntime（Pipeline 编译核心）
-│   │   └── batch_wrapper.py # BatchWrapper（批处理包装器）
-│   ├── cli_funcs/           # CLI 子命令实现
-│   ├── example/             # 示例数据文件（jsonl/json）
-│   └── webui/               # WebUI 相关
-└── awesome_dataflow.md      # 生态项目列表
+    ├── __init__.py              # 包入口；导出 utils、version、logger、operators、prompts
+    ├── version.py               # 版本号 0.9.4
+    ├── logger.py                # 日志系统（colorlog，自定义 SUCCESS 级别）
+    ├── cli.py                   # CLI 入口（argparse）
+    ├── core/					 # 抽象基类层
+    │   ├── operator.py          # OperatorABC, get_operator()
+    │   ├── llm_serving.py       # LLMServingABC
+    │   ├── prompt.py            # PromptABC, DIYPromptABC, @prompt_restrict 装饰器
+    │   ├── wrapper.py           # WrapperABC
+    │   └── __init__.py          # 导出 OperatorABC, LLMServingABC, OPERATOR_CLASSES等
+    ├── pipeline/
+    │   ├── Pipeline.py          # PipelineABC（op_runtimes, logger, op_nodes_list等）
+    │   ├── nodes.py             # OperatorNode, KeyNode（DAG 节点）
+    │   └── __init__.py          # 导出 PipelineABC
+    ├── wrapper/
+    │   ├── auto_op.py           # AutoOP, OPRuntime（Pipeline compile() 核心）
+    │   ├── batch_wrapper.py     # BatchWrapper（批处理包装器）
+    │   └── __init__.py
+    ├── utils/
+    │   ├── registry.py          # Registry + LazyLoader（核心注册机制）
+    │   ├── storage.py           # DataFlowStorage(ABC), FileStorage, DummyStorage 等
+    │   ├── utils.py             # pipeline_step(), merge_yaml()
+    │   ├── __init__.py          # 导出 OPERATOR_REGISTRY
+    │   ├── core_kg/
+    │   │   └── embedding_serving.py   # KG 专用向量检索 Serving
+    │   └── diverse_kg/
+    │       └── wikidata_client.py     # Wikidata 外部知识库查询客户端
+    ├── serving/						# LLM/VLM 服务封装
+    │   ├── api_llm_serving_request.py      # 通用 HTTP API（OpenAI 兼容）
+    │   ├── api_vlm_serving_openai.py        # VLM OpenAI API
+    │   ├── api_google_vertexai_serving.py   # Google Vertex AI
+    │   ├── lite_llm_serving.py              # LiteLLM 多提供商
+    │   ├── local_model_llm_serving.py       # vLLM / SGLang 本地 LLM
+    │   ├── local_model_vlm_serving.py       # 本地 VLM（视觉语言模型）
+    │   ├── localmodel_lalm_serving.py       # 本地 LALM（大型音频语言模型）
+    │   ├── localhost_llm_api_serving.py     # 本地 HTTP API 转发
+    │   ├── LocalSentenceLLMServing.py       # sentence-transformers Embedding
+    │   ├── light_rag_serving.py             # LightRAG 集成
+    │   ├── google_api_serving.py            # Google PerspectiveAPI
+    │   └── __init__.py                      # 导出全部 Serving 类
+    ├── operators/
+    │   ├── __init__.py
+    │   ├── general_kg/          # 通用 KG 算子
+    │   │   ├── generate/        # 实体/三元组抽取、推理、QA 生成、tuple→text
+    │   │   ├── filter/          # 实体/三元组验证、去重、采样、子图过滤
+    │   │   ├── eval/            # 三元组一致性/强度/拓扑评估，子图评估，QA 质量评估
+    │   │   └── refinement/      # 实体对齐/分类/消歧/归一化，三元组消歧
+    │   ├── commonsense_kg/      # 常识 KG 算子
+    │   │   ├── generate/        # 三元组抽取、关系 QA 生成
+    │   │   ├── filter/          # 适应性/合理性过滤、集合采样
+    │   │   ├── eval/            # 适应性/合理性评估
+    │   │   └── refine/          # 概念泛化
+    │   ├── temporal_kg/         # 时序 KG 算子
+    │   │   ├── generate/        # 四元组抽取/合并、对话/路径/子图 QA 生成
+    │   │   ├── filter/          # 时间采样
+    │   │   ├── eval/            # 时间统计
+    │   │   └── refinement/      # 四元组消歧
+    │   ├── hyper_relation_kg/   # 超关系 KG 算子
+    │   │   ├── generate/        # 超关系三元组抽取、路径/子图 QA 生成
+    │   │   ├── filter/          # 属性/完整性/一致性过滤
+    │   │   └── eval/            # 一致性/完整性/属性频率评估
+    │   ├── multi_model_kg/      # 多模态 KG 算子
+    │   │   ├── generate/        # 视觉三元组抽取、路径/子图 QA 生成
+    │   │   ├── filter/          # 路径/子图采样
+    │   │   └── refine/          # 实体链接至数据库/图片 URL
+    │   ├── pdf2text/           # KG pipeline 的上游预处理层
+    │   │   ├── generate/        # 原始文档（PDF/URL）转结构化文本算子
+    │   ├── graph_rag/           # Graph RAG 算子
+    │   │   ├── generate/        # 子图 Prompt 生成、查询实体抽取、答案生成
+    │   │   ├── filter/          # 答案合理性/token 数过滤
+    │   │   └── eval/            # 答案真实性/合理性/token 数/问题难度评估
+    │   ├── graph_reasoning/     # 图推理算子
+    │   │   ├── generate/        # 推理路径搜索、约束路径搜索、关系生成
+    │   │   ├── filter/          # 路径长度/冗余过滤
+    │   │   └── eval/            # 路径长度/冗余评估
+    │   └── domain_kg/		     # 领域KG算子
+    │       ├── financial_kg/    # 金融 KG
+    │       ├── geospatial_kg/   # 地理时序 KG
+    │       ├── legal_kg/        # 法律 KG
+    │       ├── medical_kg/      # 医学 KG
+    │       ├── scholar_kg/      # 学术 KG
+    │       └── utils/           # 各领域本体加载工具（load_*_ontology, ontology_filtering）
+    ├── prompts/
+    │   ├── core_kg/                         # 通用 KG Prompt
+    │   ├── application_kg/                  # 应用型 Prompt
+    │   ├── diverse_kg/                      # 领域 Prompt
+    │   └── __init__.py
+    ├── statics/
+    │   └── pipelines/
+    │       ├── __init__.py
+    │       └── api_pipelines/               # 开箱即用 Pipeline 脚本（可直接 python 运行）
+    ├── example/                             # Pipeline 示例输入数据（（json）
+    └── cli_funcs/                           # CLI 子命令实现
 ```
 
 ---
@@ -94,35 +135,31 @@ DataFlow/
 
 ### 3.1 OperatorABC
 
-所有算子的抽象基类（`dataflow/core/operator.py`）：
+所有 KG 算子的抽象基类（`dataflow/core/operator.py`）：
 
 ```python
 class OperatorABC(ABC):
     def __init__(self):
         self.logger = get_logger()
         self.ALLOWED_PROMPTS = tuple([type[DIYPromptABC | PromptABC]])
-
+    
     @abstractmethod
     def run(self) -> None:
         pass
 ```
 
-**实现规范**：
-1. 继承 `OperatorABC`，调用 `super().__init__()`
-2. 用 `@OPERATOR_REGISTRY.register()` 装饰器注册（必须在类定义上方，不能错位）
-3. `__init__` 接收超参数（如 `min_words`, `llm_serving` 等）
+**KG 算子实现规范**：
+
+1. 继承 `OperatorABC`，调用 `super().__init__()` 
+2. ，用 `@OPERATOR_REGISTRY.register()` 装饰器注册（必须在类定义上方）
+3. `__init__` 接收配置参数（如 `llm_serving`, `lang`, `triple_type` 等）
 4. 实现 `run(self, storage: DataFlowStorage, input_key: str, ...)` 方法
-5. `run()` 参数命名约定：`input_*` 开头为输入 key，`output_*` 开头为输出 key，其他参数打警告（正常）
-6. `run()` 必须调用 `storage.read()` 和 `storage.write()`
-7. `run()` 返回输出 key 列表（如 `['instruction', 'output']`）
-8. 实现 `@staticmethod get_desc(lang="zh")` 方法——**返回值为纯字符串（str），不是 dict**
-
-**get_operator 工厂函数**：
-
-```python
-from dataflow.core import get_operator
-op = get_operator("WordNumberFilter", {"min_words": 10, "max_words": 500})
-```
+5. `run()` 参数命名：主输入 `input_key`，辅助输入 `input_key_meta`/`input_key_xxx`，输出 `output_key`
+6. `run()` 必须调用 `storage.read("dataframe")` 和 `storage.write(df)`
+7. `run()` 返回输出 key 列表
+8. 包含 `@staticmethod get_desc(lang: str = "en") -> tuple` 方法，返回描述算子功能的 tuple，支持 zh/en
+9. 实现 `_validate_dataframe()` 方法，检查输入列存在、输出列不冲突
+10. LLM 驱动算子持有 Serving 的成员变量必须命名为 `self.llm_serving`
 
 ### 3.2 LLMServingABC
 
@@ -146,110 +183,103 @@ class LLMServingABC(ABC):
 ### 3.4 Prompt 系统
 
 ```python
-# PromptABC: 标准 Prompt 基类
+# PromptABC：标准 KG Prompt 基类
 class PromptABC:
     def build_prompt(self): ...
 
-# DIYPromptABC: 用户自定义 Prompt 基类（可绕过 @prompt_restrict 白名单）
+# DIYPromptABC：用户自定义 Prompt 基类，继承 PromptABC，子类可绕过 @prompt_restrict 白名单检查
 class DIYPromptABC(PromptABC): ...
 
-# @prompt_restrict 装饰器: 限制算子允许使用的 Prompt 类型
-# 注意：必须紧贴类定义上方，不能放在其他函数上方
-@prompt_restrict(SFTGeneratorSeedPrompt)
-class SFTGeneratorSeed(OperatorABC): ...
+# @prompt_restrict装饰器：限制算子允许使用的 Prompt 类型
+# 注意：使用时必须在类定义上方，不能放在其他函数上方
+@prompt_restrict(
+    KGRelationTripleExtractionPrompt,
+    KGAttributeTripleExtractionPrompt
+)
+@OPERATOR_REGISTRY.register()
+class KGTripleExtraction(OperatorABC):
 ```
 
 ---
 
 ## 四、Pipeline 系统（`dataflow/pipeline/`）
 
-### 4.1 三种 Pipeline 基类
+### 4.1 一种 Pipeline 基类
 
-| 类名 | 说明 |
-|------|------|
-| `PipelineABC` | 基础 Pipeline，`forward()` 运行一次 |
-| `BatchedPipelineABC` | 支持分批处理，支持 `resume_from_last`；`forward(batch_size=N, resume_from_last=True)` |
-| `StreamBatchedPipelineABC` | 流式分批，通过 `iter_chunks()` 迭代数据 |
+ `pipeline/__init__.py` 只导出 `PipelineABC`，`forward()` 运行一次
 
-### 4.2 两种 Pipeline 开发风格
+### 4.2 两种合法开发风格
 
-DataFlow 存在两种合法风格，**不要混用**：
+DataFlow -KG存在两种合法风格，不可混用。
 
 **风格 A：继承 PipelineABC（适合需要 compile() / DAG 可视化的场景）**
 
 ```python
-from dataflow.pipeline.Pipeline import PipelineABC
+from dataflow.pipeline import PipelineABC
 from dataflow.utils.storage import FileStorage
+from dataflow.serving import APILLMServing_request
+import os
 
 class MyPipeline(PipelineABC):
-    def __init__(self):
-        super().__init__()
-        self.op1 = WordNumberFilter(min_words=10)
-        self.op2 = SFTGeneratorSeed(llm_serving=my_serving)
+    def __init__(self, first_entry_file_name: str, llm_serving, lang: str = "en"):
+        super().__init__()   # ← PipelineABC 子类必须调用
+        self.storage = FileStorage(
+            first_entry_file_name=first_entry_file_name,
+            cache_path="./cache",
+            file_name_prefix="graph_rag_pipeline_step",
+            cache_type="json",
+        )
+        self.op_step1 = KGGraphRAGQueryExtraction(llm_serving=llm_serving, lang=lang)
+        self.op_step2 = KGGraphRAGSubgraphRetrieval()
 
     def forward(self):
-        storage = FileStorage("input.jsonl", cache_path="./cache", ...)
-        self.op1.run(storage=storage.step(), input_key="text")
-        self.op2.run(storage=storage.step(), input_key="text")
-
-pipeline = MyPipeline()
-pipeline.compile()   # 编译 DAG + key 校验
-pipeline.forward()   # 运行
-```
-
-**风格 B：纯类封装（DataFlow 现有 example 实际采用，无需 compile）**
-
-```python
-# 对标 reasoning_math_pipeline.py / Reasoning_CPUPipeline
-class MyCotCleanPipeline:
-    def __init__(self):
-        self.storage = FileStorage("./input.jsonl", cache_path="./cache", ...)
-        self.llm_serving = APILLMServing_request(...)
-        self.refiner_step1 = CoTLLMJudgeRefiner(llm_serving=self.llm_serving, ...)
-        self.another_op_step2 = ...
-
-    def forward(self):
-        self.refiner_step1.run(storage=self.storage.step(), input_key="cot", ...)
-        self.another_op_step2.run(storage=self.storage.step(), ...)
+        self.op_step1.run(storage=self.storage.step(), input_key="question", ...)
+        self.op_step2.run(storage=self.storage.step(), ...)
 
 if __name__ == "__main__":
-    pipeline = MyCotCleanPipeline()
+    pipeline = MyPipeline()
+    pipeline.forward()
+```
+
+**风格 B：纯类封装（不继承任何基类 **）
+
+```python
+# 对标kg_extaction_pipeline.py / KGExtractionPipeline
+class KGExtractionPipeline:
+    def __init__(self):
+        self.storage = FileStorage(
+            first_entry_file_name="input.json",
+            cache_path="./cache",
+            file_name_prefix="pipeline_step",
+            cache_type="json",
+        )
+        self.op1 = KGTripleExtraction(llm_serving=llm_serving)
+        self.op2 = KGEntityExtraction(llm_serving=llm_serving)
+
+    def forward(self):
+        self.op1.run(storage=self.storage.step(), input_key="text")
+        self.op2.run(storage=self.storage.step(), input_key="text")
+
+if __name__ == "__main__":
+    pipeline = KGExtractionPipeline()
     pipeline.forward()
 ```
 
 **选择建议**：
-- 需要 `compile()` 验证、`draw_graph()` 可视化、断点续传 → 风格 A
-- 快速实验、脚本运行、不需要 DAG 功能 → 风格 B
+-  需要 `compile()` 工作流（key 合法性校验、`draw_graph()` DAG 可视化、  多 LLM Serving 自动切换释放、`resume_step` 断点续传） → 风格 A
+- 单一 LLM Serving、快速实验、配置简单固定 → 风格 B
 
 ### 4.3 Pipeline 编译机制（风格 A 专用）
 
 `compile()` 过程：
+
 1. 将所有 `OperatorABC` 成员变量替换为 `AutoOP` 包装
 2. 执行 `forward()` 记录所有 `OPRuntime`（不实际运行算子）
 3. 调用 `_build_operator_nodes_graph()` 构建有向无环图（DAG）
 4. 验证 key 完整性：每个算子的 `input_*` key 必须在上游算子的 `output_*` key 或初始数据集列中存在
 5. Key 验证失败会抛出 `KeyError` 并打印详细信息
 
-### 4.4 BatchedPipeline 用法
-
-```python
-from dataflow.pipeline.Pipeline import BatchedPipelineABC
-
-class MyBatchedPipeline(BatchedPipelineABC):
-    def __init__(self): ...
-    def forward(self): ...
-
-pipeline = MyBatchedPipeline()
-pipeline.compile()
-pipeline.forward(
-    batch_size=100,           # 每批 100 条
-    resume_from_last=True     # 从上次中断处继续
-)
-```
-
-断点续传机制：在 cache 目录下写 `{prefix}_last_success_step.txt`，格式为 `step,batch`。
-
-### 4.5 DAG 可视化
+### 4.4 DAG 可视化（风格A专用）
 
 ```python
 pipeline.compile()
@@ -264,10 +294,10 @@ pipeline.draw_graph(port=8080, hide_no_changed_keys=True)
 ### 5.1 存储类型
 
 | 类名 | 说明 | 适用场景 |
-|------|------|---------|
+|------|---------|------|
 | `FileStorage` | 每次 read/write 立即落盘 | 通用，简单可靠 |
-| `LazyFileStorage` | 内存中操作，进程退出时落盘（原子写） | 高性能，防止部分写 |
 | `DummyStorage` | 纯内存，不落盘 | **仅供 BatchWrapper 内部使用**，不要用于 Pipeline |
+| `LazyFileStorage` | 内存中操作，进程退出时落盘（原子写） | 高性能，防止部分写 |
 
 ### 5.2 FileStorage 使用
 
@@ -283,21 +313,34 @@ storage = FileStorage(
 ```
 
 `first_entry_file_name` 支持：
+
 - 本地文件路径：`./data/input.jsonl`
 - HuggingFace：`hf:openai/gsm8k:main:train`
 - ModelScope：`ms:modelscope/gsm8k:train`
+
+KG 扩展参数：
+
+```python
+# 指定路径读取，绕过 step 机制
+storage.read(output_type="dataframe", file_path="./some/other.jsonl")
+
+# 写入到指定路径，或写当前 step 而非 step+1
+storage.write(df, file_path="./output/custom.jsonl")
+storage.write(df, use_current_step=True)
+
+```
 
 ### 5.3 storage.step() 正确用法
 
 ```python
 # Pipeline forward() 中：每次 op.run() 时传入（自动递增）
-self.op1.run(storage=self.storage.step(), ...)  # -1 → 0
-self.op2.run(storage=self.storage.step(), ...)  # 0 → 1
+self.op1.run(storage=self.storage.step(), ...)   # -1 → 0
+self.op2.run(storage=self.storage.step(), ...)   # 0 → 1
 
-# 独立测试脚本中：手动调用一次再传 storage 本身
+# 独立测试脚本中：手动推进一次再传 storage 本身
 storage = FileStorage("input.jsonl", cache_path="./cache")
-storage.step()           # 手动推进：-1 → 0
-op.run(storage=storage, input_key="text")   # 注意：不要再传 storage.step()
+storage.step()                                   # 手动推进：-1 → 0
+op.run(storage=storage, input_key="raw_chunk")   # 不要再传 storage.step()
 ```
 
 ### 5.4 LazyFileStorage 推荐配置
@@ -315,23 +358,25 @@ storage = LazyFileStorage(
 )
 ```
 
----
+***
 
 ## 六、LLM Serving 系统（`dataflow/serving/`）
 
-### 6.1 可用 Serving 实现
+### 6.1 可用 Serving 实现：
 
 | 类名 | 说明 |
 |------|------|
 | `APILLMServing_request` | 通用 HTTP API，支持 OpenAI 兼容接口，多线程并发 |
-| `LiteLLMServing` | 基于 LiteLLM，支持 OpenAI/Anthropic/Azure/Bedrock 等 |
-| `LocalModelLLMServing_vllm` | 本地 vLLM 推理服务 |
-| `LocalModelLLMServing_sglang` | 本地 SGLang 推理服务 |
+| `LiteLLMServing` | 基于 LiteLLM，支持多提供商 |
+| `LocalModelLLMServing_vllm` | 本地 vLLM 推理 |
+| `LocalModelLLMServing_sglang` | 本地 SGLang 推理 |
 | `LocalHostLLMAPIServing_vllm` | 本地已启动的 vLLM API |
-| `APIVLMServing_openai` | 视觉语言模型 API（OpenAI 格式） |
+| `LocalModelLALMServing_vllm` | 本地 LALM（大型音频语言模型）推理 |
+| `APIVLMServing_openai` | 视觉语言模型 API |
 | `LocalVLMServing_vllm` | 本地 VLM（vLLM）服务 |
-| `LocalEmbeddingServing` | 本地 Sentence Embedding 服务 |
+| `LocalEmbeddingServing` | 本地 Sentence Embedding |
 | `LightRAGServing` | LightRAG 服务 |
+| `APIGoogleVertexAIServing` | Google Vertex AI API |
 | `PerspectiveAPIServing` | Google Perspective API |
 
 ### 6.2 APILLMServing_request 使用
@@ -347,10 +392,8 @@ serving = APILLMServing_request(
     key_name_of_api_key="DF_API_KEY",   # 环境变量名
     model_name="gpt-4o",
     temperature=0.0,
-    max_workers=200,      # 推荐：自建/代理 API 用 200+；官方 API 用 50-100
+    max_workers=10,      # KG pipeline 实际用 8–20，根据 API 限速调整
     max_retries=5,
-    connect_timeout=10.0,
-    read_timeout=120.0,
 )
 
 responses = serving.generate_from_input(
@@ -362,13 +405,13 @@ responses = serving.generate_from_input(
 
 **max_workers 选择指南**：
 
-| API 情况 | 推荐 max_workers |
-|---|---|
-| 官方 OpenAI / DeepSeek（有限速） | 50–100 |
-| 自建/代理 API（200-400 并发支持） | 200–300 |
-| 本地 vLLM（单机） | 50–100 |
+| API 情况                          | 推荐 max_workers |
+| --------------------------------- | ---------------- |
+| 官方 OpenAI / DeepSeek（有限速）  | 8-20             |
+| 自建/代理 API（无严格限速）       | 20-30            |
+| 本地 vLLM / VLM（多模态，推理重） | 4-10             |
 
-默认值 10 极大低估了 API 能力，务必根据实际情况调高。
+默认值 10 在 KG 场景下基本合理，KG pipeline 最高只用到 30，KG 算子的 LLM 调用通常比文本过滤算子更重（需要结构化输出解析），并发过高容易导致 API 超时或响应质量下降。
 
 ### 6.3 Serving 生命周期
 
@@ -383,13 +426,14 @@ responses = serving.generate_from_input(
 ### 7.1 Registry 机制
 
 ```python
-from dataflow.utils.registry import OPERATOR_REGISTRY, PROMPT_REGISTRY
+from dataflow.utils.registry import OPERATOR_REGISTRY
+from dataflow.utils.registry import PROMPT_REGISTRY
 
 @OPERATOR_REGISTRY.register()
-class MyFilter(OperatorABC): ...
+class MyKGFilter(OperatorABC): ...
 
 @PROMPT_REGISTRY.register()
-class MyPrompt(PromptABC): ...
+class MyKGPrompt(PromptABC): ...
 ```
 
 ### 7.2 LazyLoader 机制与 import 路径
@@ -398,11 +442,11 @@ class MyPrompt(PromptABC): ...
 
 ```python
 # ✅ 正确：从父模块 import
-from dataflow.operators.reasoning import CoTLLMJudgeRefiner
-from dataflow.operators.general_text import WordNumberFilter
+from dataflow.operators.graph_rag import KGGraphRAGGetAnswer
+from dataflow.operators.commonsense_kg import CSKGTripleAdaptabilityEvaluator
 
 # ❌ 错误：直接用子包路径（会绕过 LazyLoader，报 ModuleNotFoundError）
-from dataflow.operators.reasoning.refine.cot_llm_judge_refiner import CoTLLMJudgeRefiner
+from dataflow.operators.general_kg.generate.kg_entity_extractor import KGEntityExtraction
 ```
 
 **新增算子必须**在对应模块 `__init__.py` 的 `TYPE_CHECKING` 块中声明：
@@ -415,111 +459,102 @@ if TYPE_CHECKING:
 **验证已注册的算子**：
 
 ```python
-import dataflow.operators.reasoning as r
+import dataflow.operators.graph_reasoning as r
 print(r._import_structure)  # 查看 LazyLoader 管理的所有类名
 ```
 
 ---
 
-## 八、算子分类与功能概述
+## 八、KG 算子分类与功能概述
 
-### 8.1 `general_text`（通用文本）
+### 8.1 `general_kg`（通用 KG）
 
-**Filter（规则型）**：
-`ColonEndFilter`, `SentenceNumberFilter`, `ContentNullFilter`, `SymbolWordRatioFilter`,
-`AlphaWordsFilter`, `WordNumberFilter`, `CharNumberFilter`, `MeanWordLengthFilter`,
-`StopWordFilter`, `NoPuncFilter`, `SpecialCharacterFilter`, `WatermarkFilter`,
-`CurlyBracketFilter`, `CapitalWordsFilter`, `LoremIpsumFilter`, `UniqueWordsFilter`,
-`LineStartWithBulletpointFilter`, `LineWithJavascriptFilter`, `LineEndWithEllipsisFilter`,
-`HtmlEntityFilter`, `IDCardFilter`
+```python
+from dataflow.operators.general_kg import KGEntityExtraction, KGTripleExtraction, ...
+```
 
-**Filter（语言/去重）**：
-`LanguageFilter`, `LLMLanguageFilter`,
-`HashDeduplicateFilter`, `MinHashDeduplicateFilter`, `NgramHashDeduplicateFilter`,
-`SimHashDeduplicateFilter`, `SemDeduplicateFilter`
+**Generate**：`KGEntityExtraction`、`KGTripleExtraction`、`KGRelationTripleInference`、`KGAttributeTripleQAGeneration`、`KGRelationTripletDialogueQAGeneration`、`KGRelationTriplePathQAGeneration`、`KGRelationTripleSubgraphQAGeneration`、`KGTripleMerger`、`KGTupleTextGeneration`
 
-**Filter（其他）**：
-`LangkitFilter`, `LexicalDiversityFilter`, `NgramFilter`, `PresidioFilter`,
-`BlocklistFilter`, `PerspectiveFilter`
+**Filter**：`KGTupleRemoveRepeated`、`KGTupleValidity`、`KGTupleSubjectObjectCleaner`、`KGTupleIsolatedNodeFilter`、`KGTupleRelationNormalizer`、`KGTupleEntityLinker`、`KGTupleEntityLinkerByID`、`KGTupleEntityTypeFilter`、`KGTupleRelationTypeFilter`、`KGTupleAttributeFilter`、`KGTupleTemporalFilter`、`KGTupleConfidenceFilter`、`KGTupleLanguageFilter`
 
-**Refine**：HTML实体、URL移除、小写转换、NER、PII匿名化、引用移除、缩写扩展、
-emoji移除、多余空格移除、图片引用移除、数字/标点移除、停用词移除、
-拼写校正、词干化/词形还原、文本规范化等
+**Refinement**：`KGTripleSchemaAlignment`、`KGTripleAmbiguityResolver`、`KGTripleTextualRepresentation`、`KGTupleTranslation`、`KGTripleCanonicalization`、`KGTripleDecontextualization`、`KGTripleSelfContained`
 
-**Eval**：Ngram、词汇多样性、Langkit、Presidio、BERT、BLEU、CIDEr、Perspective、Task2Vec、Vendi
+**Eval**：`KGTripleHallucinationEvaluator`、`KGTripleHallucinationEvaluatorV2`、`KGTripleLogicalConsistencyEvaluator`、`KGTripleNoveltyEvaluator`、`KGTripleRelationSimilarityEvaluator`、`KGTripleSubgraphDensityEvaluator`、`KGTripleTemporalConsistencyEvaluator`、`KGTripleTypeConsistencyEvaluator`、`KGTripleUniquenessEvaluator`、`KGTripleHallucinationEvalPipeline`
 
-### 8.2 `text_sft`（SFT 指令微调）
+---
 
-**Eval**：
-`AlpagasusSampleEvaluator`, `DeitaQualitySampleEvaluator`, `DeitaComplexitySampleEvaluator`,
-`InstagSampleEvaluator`, `RMSampleEvaluator`, `SuperfilteringSampleEvaluator`,
-`TreeinstructSampleEvaluator`
+### 8.2 `commonsense_kg`（常识 KG）
 
-**Filter**：对应上述各评估算子的过滤版本
+```python
+from dataflow.operators.commonsense_kg import CSKGTripleExtraction, CSKGTripleFilter, ...
+```
 
-**Generate**：
-- `CondorGenerator`：Condor 数据生成
-- `SFTGeneratorSeed`：从种子文档生成 SFT 格式 instruction-output 对
+**Generate**：`CSKGTripleExtraction`、`CSKGTripleConceptExpansion`
 
-**Refine**：`CondorRefiner`
+**Filter**：`CSKGTripleFilter`、`CSKGTripleLanguageConsistencyFilter`、`CSKGTripleAdaptabilityEvaluator`
 
-### 8.3 `reasoning`（推理数据）
+**Eval**：`CSKGTripleCoherenceEvaluator`、`CSKGTripleContextualRelevanceEvaluator`、`CSKGTripleLanguageConsistencyEvaluator`
 
-**Generate**：
-`ReasoningAnswerGenerator`, `ReasoningQuestionGenerator`,
-`ReasoningAnswerExtractionQwenMathEvalGenerator`, `ReasoningPseudoAnswerGenerator`,
-`ReasoningPretrainFormatConvertGenerator`, `ReasoningQuestionFusionGenerator`
+---
 
-**Eval**：
-`ReasoningCategoryDatasetEvaluator`, `ReasoningDifficultyDatasetEvaluator`,
-`ReasoningTokenDatasetEvaluator`,
-`ReasoningQuestionCategorySampleEvaluator`, `ReasoningQuestionDifficultySampleEvaluator`,
-`ReasoningQuestionSolvableSampleEvaluator`
+### 8.3 `temporal_kg`（时序 KG）
 
-**Filter**：
-`ReasoningAnswerFormatterFilter`, `ReasoningAnswerGroundTruthFilter`,
-`ReasoningAnswerNgramFilter`, `ReasoningAnswerPipelineRootFilter`,
-`ReasoningAnswerTokenLengthFilter`, `ReasoningQuestionFilter`,
-`ReasoningAnswerModelJudgeFilter`
+```python
+from dataflow.operators.temporal_kg import TKGTupleExtraction, TKGTupleMerger, ...
+```
 
-**Refine（CoT 清洗）**：
-`CoTLLMJudgeRefiner`（Method A）, `CoTMonteCarloRefiner`（Method B）,
-`CoTChunkCompressRefiner`（Method C）, `CoTPatternRefiner`（Method D）,
-`CoTMathNormRefiner`（规则型 LaTeX 标准化，无 LLM）
+**Generate**：`TKGTupleExtraction`、`TKGAttributeQAGeneration`、`TKGTupleSubgraphQAGeneration`、`TKGTuplePathQAGeneration`、`TKGRelationTupleDialogueQAGeneration`、`TKGTupleMerger`
 
-### 8.4 `code`（代码数据）
+**Refinement**：`TKGTupleDisambiguation`
 
-包含 `eval/`, `filter/`, `generate/` 三类子目录，具体算子参见对应 `__init__.py`。
+**Filter**：`TKGTupleTimeFilter`
 
-### 8.5 `core_text`（核心文本）
+**Eval**：`TKGTemporalStatistics`
 
-**Generate**：`PromptedGenerator`, `FormatStrPromptedGenerator`, `Text2MultiHopQAGenerator`,
-`BenchAnswerGenerator`, `ChunkedPromptedGenerator`, `EmbeddingGenerator`,
-`RandomDomainKnowledgeRowGenerator`, `RetrievalGenerator`
+---
 
-**Filter**：`GeneralFilter`, `KCenterGreedyFilter`, `PromptedFilter`
+### 8.4 `graph_reasoning`（图推理）
 
-**Eval**：`BenchDatasetEvaluator`, `BenchDatasetEvaluatorQuestion`, `PromptedEvaluator`,
-`Text2QASampleEvaluator`, `UnifiedBenchDatasetEvaluator`
+```python
+from dataflow.operators.graph_reasoning import KGReasoningTripleExtraction, KGReasoningPathSampling, ...
+```
 
-**Refine**：`PandasOperator`, `PromptedRefiner`
+**Generate**：`KGReasoningTripleExtraction`、`KGReasoningPathSampling`、`KGReasoningQuestionGeneration`
+
+**Filter**：`KGReasoningPathFilter`、`KGReasoningConstrainedPathSearch`、`KGReasoningPathRedundancyFilter`
+
+**Eval**：`KGReasoningAnswerEvaluation`
+
+---
+
+### 8.5 `graph_rag`（Graph RAG）
+
+```python
+from dataflow.operators.graph_rag import KGGraphRAGTripleExtraction, KGGraphRAGEntityExtraction, ...
+```
+
+**Generate**：`KGGraphRAGTripleExtraction`、`KGGraphRAGEntityExtraction`、`KGGraphRAGAnswerGeneration`
+
+**Filter**：`KGGraphRAGNodeFilter`、`KGRAGAnswerTokenFilter`
+
+**Eval**：`KGGraphRAGAnswerEvaluation`、`KGGraphRAGAnswerLLMEvaluation`
+
+---
 
 ### 8.6 其他算子模块
 
 | 模块 | 内容 |
-|---|---|
-| `agentic_rag` | AgenticRAG 相关算子 |
-| `chemistry` | 化学领域数据算子 |
-| `conversations` | 对话数据算子 |
-| `knowledge_cleaning` | 知识库清洗（`FileOrURLToMarkdownConverterFlash`, `KBCChunkGenerator`, `KBCTextCleaner`） |
-| `pdf2vqa` | PDF → VQA 数据生成 |
-| `text2sql` | Text2SQL 数据（含 `Text2SQLCoTVotingGenerator` 等） |
-| `text_pt` | 预训练文本算子 |
-| `core_vision` | 视觉算子 |
-| `core_speech` | 语音算子 |
+|------|------|
+| `pdf2text` | PDF/URL 转 Markdown 及文本分块预处理（MinerU、trafilatura、chonkie） |
+| `hyper_relation_kg` | 超关系（N-ary）KG 四元组抽取、限定词过滤与一致性评估 |
+| `multi_model_kg` | 多模态 KG 图像描述生成、跨模态三元组抽取与实体链接 |
+| `domain_kg/financial_kg` | 金融领域相关算子 |
+| `domain_kg/medical_kg` | 医学领域 相关算子 |
+| `domain_kg/geospatial_kg` | 地理空间 相关算子 |
+| `domain_kg/legal_kg` | 法律领域相关算子 |
+| `domain_kg/scholar_kg` | 学术领域相关算子 |
 
 ---
-
 ## 九、Prompt 系统（`dataflow/prompts/`）
 
 ### 9.1 注册与使用
@@ -553,6 +588,57 @@ class MyCustomPrompt(DIYPromptABC):
         return f"Custom: {content}"
 ```
 
+### 9.3 KG 输出格式约定
+
+- 三元组/四元组 → 标签字符串列表，`<标签> 值` 拼接
+- QA → 对象列表，`{"question": ..., "answer": ...}`
+- key 名由具体 Prompt 的业务语义决定（`triple` / `inferred_triple` / `tuple` / `QA_pairs`
+
+**① 关系三元组 / 属性三元组 → `triple`**
+
+统一格式：`<标签> 值` 依次拼接，空格分隔。关系三元组和属性三元组共用同一 key：
+
+```json
+{"triple": [
+    "<subj> Henry <obj> Maria Rodriguez <rel> is_trained_by",
+    "<subj> AlphaFold <obj> protein structure <rel> predicts"
+]}
+
+```
+
+**② 推理三元组 → `inferred_triple`**
+
+格式与 `triple` 完全相同，仅 key 不同，语义上表示"从已有三元组逻辑推断出的新三元组"：
+
+```python
+{"inferred_triple": [
+    "<subj> subject <obj> object <rel> relation"
+]}
+```
+
+**③ 时序四元组 → `tuple`**
+
+在三元组基础上追加 `<time>` 标签；若文本中无明确时间则填 `NA`：
+
+```python
+{"tuple": [
+    "<subj> Entity <obj> Entity <rel> Relation <time> 2025-03-03",
+    "<subj> Entity <obj> Entity <rel> Relation <time> 2025-01-01|2025-01-03",
+    "<subj> Entity <obj> Entity <rel> Relation <time> NA"
+]}
+```
+
+**④ 问答对 → `QA_pairs`**
+
+**对象列表**，每个对象包含 `question` 和 `answer` 两个 key：
+
+```python
+{"QA_pairs": [
+    {"question": "Who trained Henry?", "answer": "Maria Rodriguez"},
+    {"question": "What does AlphaFold predict?", "answer": "protein structure"}
+]}
+```
+
 ---
 
 ## 十、日志系统
@@ -561,109 +647,133 @@ class MyCustomPrompt(DIYPromptABC):
 from dataflow import get_logger
 logger = get_logger()
 
-logger.debug("debug")
 logger.info("info")
-logger.success("success")    # 自定义 SUCCESS 级别（绿色）
 logger.warning("warning")
 logger.error("error")
-
-# 控制级别：export DF_LOGGING_LEVEL=DEBUG
 ```
 
 ---
 
 ## 十一、CLI 系统
 
+DataFlow-KG 使用 `dfkg` 命令:
+
 ```bash
-dataflow --version
-dataflow env
-dataflow init                 # base 初始化
-dataflow init repo            # 初始化仓库脚手架
-# dataflow init operator      # TODO: 尚未实现
-# dataflow init pipeline      # TODO: 尚未实现
-dataflow eval init / api / local
-dataflow pdf2model init --qa kbc
-dataflow text2model init / train
-dataflow webui --host 0.0.0.0 --port 8000
+dfkg  --version               
+dfkg env                          
+dfkg init                         
+dfkg eval init / api / local
+dfkg pdf2model init/train               
+dfkg text2model init/train              
+dfkg webui --host 0.0.0.0 --port 7862       
 ```
 
 ---
 
-## 十二、常见设计模式
+## 十二、KG 常见设计模式
 
 ### 模式 1：纯规则过滤
 
 ```python
 @OPERATOR_REGISTRY.register()
-class MyRuleFilter(OperatorABC):
-    def __init__(self, threshold=0.5):
-        super().__init__()
-        self.threshold = threshold
+class MyKGFilter(OperatorABC):
+    def __init__(self, lang: str = "en"):
+        self.logger = get_logger()
+        self.lang = lang
 
-    def run(self, storage, input_key, output_key="label"):
+    def run(self, storage: DataFlowStorage,
+            input_key: str = "triple",
+            output_key: str = "triple") -> list:
+        self.input_key = input_key
+        self.output_key = output_key
         df = storage.read("dataframe")
+        self._validate_dataframe(df)
         df[output_key] = df[input_key].apply(lambda x: ...)
-        storage.write(df[df[output_key]])
-        return [output_key]
-```
-
-### 模式 2：LLM 驱动算子
-
-```python
-@OPERATOR_REGISTRY.register()
-class MyLLMOperator(OperatorABC):
-    def __init__(self, llm_serving: LLMServingABC):
-        super().__init__()
-        self.llm_serving = llm_serving  # 必须用此名，Pipeline 据此管理生命周期
-
-    def run(self, storage, input_key, output_key="result"):
-        df = storage.read("dataframe")
-        prompts = [f"处理：{row[input_key]}" for _, row in df.iterrows()]
-        results = self.llm_serving.generate_from_input(prompts)
-        df[output_key] = results
         storage.write(df)
         return [output_key]
 ```
 
-### 模式 3：多输出 key
+### 模式 2： LLM 驱动算子
 
 ```python
-def run(self, storage, input_key, output_instruction="instruction", output_answer="output"):
-    ...
-    df["instruction"] = ...
-    df["output"] = ...
-    storage.write(df)
-    return ["instruction", "output"]
+@prompt_restrict(MyKGPrompt)
+@OPERATOR_REGISTRY.register()
+class MyKGOperator(OperatorABC):
+    def __init__(self, llm_serving: LLMServingABC, lang: str = "en"):
+        self.logger = get_logger()
+        self.llm_serving = llm_serving    # 必须用此名
+        self.prompt_template = MyKGPrompt(lang=lang)
+
+    def run(self, storage: DataFlowStorage,
+            input_key: str = "raw_chunk",
+            output_key: str = "triple") -> list:
+        df = storage.read("dataframe")
+        prompts = [self.prompt_template.build_prompt(text=row[input_key])
+                   for _, row in df.iterrows()]
+        raw_outputs = self.llm_serving.generate_from_input(
+            prompts, system_prompt=self.prompt_template.system_text)
+        # KG 输出为 JSON，必须解析
+        df[output_key] = [json.loads(r).get("triple", []) if r else []
+                          for r in raw_outputs]
+        storage.write(df)
+        return [output_key]
+
 ```
 
----
+### 模式 3：多输出 key 算子
+
+```python
+def run(self, storage, input_key, output_key1="triple", output_key2="entity_class") -> list:
+    ...
+    df[output_key1] = ...
+    df[output_key2] = ...
+    storage.write(df)
+    return [output_key1, output_key2]
+```
+
+### 模式4：运行时本体传参（领域 KG 专用）
+
+```python
+ def run(self, storage, input_key="raw_chunk", output_key="triple") -> list:
+        df = storage.read("dataframe")
+        ontology = self._load_ontology(...)
+        self.prompt_template.build_system_prompt(ontology)  # ← 领域 KG 独有
+        prompts = [self.prompt_template.build_prompt(text=row[input_key])
+                   for _, row in df.iterrows()]
+        raw_outputs = self.llm_serving.generate_from_input(
+            prompts, system_prompt=self.prompt_template.system_text)
+        df[output_key] = [json.loads(r).get("triple", []) if r else []
+                          for r in raw_outputs]
+        storage.write(df)
+        return [output_key]
+```
+
+***
 
 ## 十三、安装说明
 
 ```bash
 # 用户安装
-pip install open-dataflow
+pip install dataflow-kg
 
 # 开发者安装（可编辑模式）
-git clone https://github.com/OpenDCAI/DataFlow.git
-cd DataFlow
+git clone https://github.com/OpenDCAI/DataFlow-KG.git
+cd DataFlow-KG
 pip install -e .
 
 # GPU 后端
-pip install open-dataflow[vllm]     # vLLM
-pip install open-dataflow[sglang]   # SGLang
-pip install open-dataflow[litellm]  # LiteLLM
+pip install dataflow-kg[vllm]     # vLLM（>=0.7.0,<=0.9.2）
+pip install dataflow-kg[vllm07]   # vLLM 0.7.x
+pip install dataflow-kg[vllm08]   # vLLM 0.8.x
+pip install dataflow-kg[sglang]   # SGLang
+pip install dataflow-kg[litellm]  # LiteLLM
 ```
 
 ---
 
 ## 十四、项目来源与生态
 
-- **主仓库**：https://github.com/OpenDCAI/DataFlow
-- **文档**：https://opendcai.github.io/DataFlow-Doc/zh/
-- **WebUI 仓库**：https://github.com/OpenDCAI/DataFlow-WebUI
+- **主仓库**：https://github.com/OpenDCAI/DataFlow-KG
+- **文档**：https://zhp-li197.github.io/DataFlow-KG-Doc/zh/
 
----
-
-*最后同步：2026-04-03（基于 v1.0.10 main 分支）*
-*如需更新算子列表，运行 SKILL.md 中的"知识库更新感知流程"*
+*最后同步：2026-05-09    如需更新算子列表，运行 SKILL.md 中的 "知识库更新感知流程 "*
