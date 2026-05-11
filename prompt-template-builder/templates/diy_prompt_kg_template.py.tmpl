@@ -1,0 +1,26 @@
+__all__ = ['{{PROMPT_CLASS_NAME}}']
+
+from dataflow.core.prompt import DIYPromptABC
+
+
+# KG prompt template. ALL KG operators call both build_system_prompt() and build_prompt(...).
+# build_system_prompt: role definition, task instructions, constraints, output schema (system-level)
+# build_prompt: render input data only, no repeated constraints
+class {{PROMPT_CLASS_NAME}}(DIYPromptABC):
+    def __init__(self{{INIT_SIGNATURE}}):
+        {{INIT_BODY}}
+
+    def build_system_prompt(self) -> str:
+        return """{{SYSTEM_ROLE_SECTION}}
+
+{{SYSTEM_TASK_SECTION}}
+
+{{SYSTEM_CONSTRAINTS_SECTION}}
+
+# Output Format (MANDATORY)
+{{SYSTEM_OUTPUT_FORMAT_SECTION}}
+"""
+
+    def build_prompt(self, {{BUILD_PROMPT_SIGNATURE}}) -> str:
+        return f"""{{INPUT_RENDER_SECTION}}
+"""
