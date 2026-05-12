@@ -1,8 +1,6 @@
-# DataFlow 已知问题数据库
+# DataFlow-KG 已知问题数据库
 
-> **文件状态**：可追加更新
-> **格式约定**：每条 Issue 包含：编号、标题、症状关键词、根因、解决方案、修复代码示例
-> **使用方式**：诊断时先按"症状关键词"匹配，命中则直接给出根因和方案
+> **文件状态**：可追加更新**格式约定**：每条 Issue 包含：编号、标题、症状关键词、根因、解决方案、修复代码示例**使用方式**：诊断时先按"症状关键词"匹配，命中则直接给出根因和方案
 
 ---
 
@@ -28,13 +26,13 @@
 ```yaml
 # ❌ 错误
 operators:
-  - type: MyFilter
-    input_Key: "text"   # 大小写错误
+  - type: KGTripleExtraction
+    Triple_Type: "relation"   # 大小写错误
 
 # ✅ 正确
 operators:
-  - type: MyFilter
-    input_key: "text"
+  - type: KGTripleExtraction
+    triple_type: "relation"
 ```
 
 ---
@@ -54,7 +52,7 @@ operators:
 
 **解决方案**：
 
-在对应模块的 `__init__.py` 中添加 import：
+在对应模块的 `__init__.py` 的 `TYPE_CHECKING` 块中添加 import：
 
 ```python
 # dataflow/operators/<module>/__init__.py
@@ -62,20 +60,22 @@ operators:
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .filter.my_new_filter import MyNewFilter
+    from .filter.kg_my_new_filter import KGMyNewFilter  
 ```
 
 **修复示例**：
 
 ```python
-# dataflow/operators/general_text/__init__.py
+# dataflow/operators/general_kg/__init__.py
 if TYPE_CHECKING:
     from .filter.my_new_filter import MyNewFilter  # ← 新增这行
 ```
 
+
+
 ---
 
-## Issue #003 — Pipeline key 不一致
+## Issue #003 — Pipeline  key 不一致
 
 **标题**：`Key Matching Error` / `does not match any output keys`
 
@@ -86,7 +86,7 @@ if TYPE_CHECKING:
 
 **根因**：
 
-Pipeline 中前一个算子的 `output_key` 与后一个算子的 `input_key` 不一致，或 `storage.write()` 写入的列名与后续 `storage.read()` 读取的列名不匹配。
+Pipeline 中前一个算子的 `output_key` 与后一个算子的 `input_key` 不一致，DataFrame 中找不到对应列名。KG Pipeline 中尤其常见于 entity → triple 这一链路。
 
 **解决方案**：
 
@@ -95,13 +95,31 @@ Pipeline 中前一个算子的 `output_key` 与后一个算子的 `input_key` �
 **修复示例**：
 
 ```python
-# ❌ 错误：step1 输出 "result"，step2 读取 "output"
-self.step1_op.run(storage=self.storage.step(), output_key="result")
-self.step2_op.run(storage=self.storage.step(), input_key="output")  # 找不到 "output"
+# ❌ 错误：step1 输出 "entities"，step2 读取 "entity"
+self.entity_extractor_step1.run(
+    storage=self.storage.step(),
+    input_key="raw_chunk",
+    output_key="entities",      # 写入列名
+)
+self.triple_extractor_step2.run(
+    storage=self.storage.step(),
+    input_key="raw_chunk",
+    input_key_meta="entity",    # 找不到 "entity" 列，实际是 "entities"
+    output_key="triple",
+)
 
 # ✅ 正确：保持一致
-self.step1_op.run(storage=self.storage.step(), output_key="cleaned_text")
-self.step2_op.run(storage=self.storage.step(), input_key="cleaned_text")
+self.entity_extractor_step1.run(
+    storage=self.storage.step(),
+    input_key="raw_chunk",
+    output_key="entity",
+)
+self.triple_extractor_step2.run(
+    storage=self.storage.step(),
+    input_key="raw_chunk",
+    input_key_meta="entity",    # 与上一步 output_key 一致
+    output_key="triple",
+)
 ```
 
 ---
@@ -117,26 +135,26 @@ self.step2_op.run(storage=self.storage.step(), input_key="cleaned_text")
 
 **根因**：
 
-在 Pipeline `forward()` 中调用算子时，没有在每个 `run()` 调用时传递 `storage=self.storage.step()`，或使用了错误的用法（如 `self.storage` 而非 `self.storage.step()`）。
+在 Pipeline `forward()` 中调用算子时，没有在每个 `run()` 调用时传递 `storage=self.storage.step()`，或使用了错误的用法（传 `self.storage` 而非 `self.storage.step()`）。
 
 **解决方案**：
 
 - Pipeline `forward()` 中：每次 `op.run()` 都传 `storage=self.storage.step()`
-- 独立测试脚本中：先调用 `storage.step()`，再传给 `op.run()`
+- 独立测试脚本中：先调用 `storage.step()`，再传 `storage` 本身给 `op.run()`
 
 **修复示例**：
 
 ```python
 # ❌ 错误（Pipeline 中）
-self.op.run(storage=self.storage, input_key="text")
+self.op.run(storage=self.storage, input_key="triple")
 
 # ✅ 正确（Pipeline 中）
-self.op.run(storage=self.storage.step(), input_key="text")
+self.op.run(storage=self.storage.step(), input_key="triple")
 
 # ✅ 正确（独立测试脚本中）
 storage = FileStorage(...)
-storage.step()  # 手动推进一步
-op.run(storage=storage, input_key="text")
+storage.step()                                    # 手动推进一步
+op.run(storage=storage, input_key="triple")       # 传 storage，不是 storage.step()
 ```
 
 ---
@@ -152,7 +170,7 @@ op.run(storage=storage, input_key="text")
 
 **根因**：
 
-`DummyStorage` 是一个测试用 stub，不实现 `get_keys_from_dataframe()` 及其他完整 Storage 方法。在 Pipeline 中使用 `DummyStorage` 会导致算子调用这些方法时抛出错误。
+`DummyStorage` 是一个测试用的 stub，不实现 `get_keys_from_dataframe()` 及其他完整 Storage 方法。在 Pipeline 中使用 `DummyStorage` 会导致算子调用这些方法时抛出错误。
 
 **解决方案**：
 
@@ -169,106 +187,30 @@ storage = DummyStorage()
 # ✅ 正确（Pipeline 中使用 FileStorage）
 from dataflow.utils.storage import FileStorage
 storage = FileStorage(
-    first_entry_file_name="./data/input.jsonl",
+    first_entry_file_name="./data/input.json",
     cache_path="./cache",
-    file_name_prefix="dataflow_cache_step",
-    cache_type="jsonl",
+    file_name_prefix="kg_pipeline_step",
+    cache_type="json",
 )
+
 ```
 
 ---
 
-## Issue #006 — re.split() 捕获组产生 None
-
-**标题**：`AttributeError: 'NoneType' object has no attribute 'strip'` + `re.split`
-
-**症状关键词**：
-- `AttributeError: 'NoneType' object has no attribute 'strip'`
-- `re.split`
-- `NoneType` + 字符串操作
-
-**根因**：
-
-在 `re.split()` 的 pattern 中使用了**捕获组** `(...)`（包括可选捕获组 `(...)?`）。Python 的 `re.split()` 在使用捕获组时，会把匹配到的分隔符（或 `None`，若是可选组未匹配）插入结果列表中，导致列表中存在 `None` 值，后续调用 `.strip()` 等字符串方法时报错。
-
-**解决方案**：
-
-将所有 `re.split()` pattern 中的捕获组 `(...)` 改为**非捕获组** `(?:...)`。
-
-**修复示例**：
-
-```python
-import re
-
-text = "Step 1: foo\nStep 2: bar"
-
-# ❌ 错误：捕获组导致 None 混入结果
-parts = re.split(r"(Step \d+:)", text)
-# ['', 'Step 1:', ' foo\n', 'Step 2:', ' bar']
-# 结果中包含分隔符本身，可能混入 None（尤其是可选组）
-
-# ❌ 更危险：可选捕获组
-parts = re.split(r"(\n+)?##", text)
-# None 会出现在 \n 未匹配时
-
-# ✅ 正确：非捕获组
-parts = re.split(r"(?:Step \d+:)", text)
-parts = re.split(r"(?:\n+)?##", text)
-
-# 或者直接过滤 None
-parts = [p for p in re.split(r"(Step \d+:)", text) if p is not None]
-```
-
 ---
 
-## Issue #007 — @prompt_restrict 装饰器位置错误
+## Issue #006 — LazyLoader 子包路径 import 失败
 
-**标题**：`@prompt_restrict` 未生效或报错
-
-**症状关键词**：
-- `prompt_restrict`
-- 装饰器未生效
-- Prompt 类型限制失效
-
-**根因**：
-
-`@prompt_restrict(MyPrompt)` 装饰器必须**紧贴类定义上方**。若在 `@prompt_restrict` 和 `class MyOperator` 之间插入了其他装饰器（如 `@OPERATOR_REGISTRY.register()`），则 `@prompt_restrict` 作用于了 `register()` 的返回值而非类本身，导致限制失效。
-
-**解决方案**：
-
-确保装饰器顺序为：`@OPERATOR_REGISTRY.register()` 在最外层，`@prompt_restrict` 紧贴类定义：
-
-```python
-# ❌ 错误：@prompt_restrict 被 @register 隔开
-@OPERATOR_REGISTRY.register()
-@prompt_restrict(MyPrompt)
-class MyOperator(OperatorABC):
-    ...
-
-# ✅ 正确：@prompt_restrict 紧贴类
-@OPERATOR_REGISTRY.register()
-class MyOperator(OperatorABC):
-    ...
-# 注：实际上 @prompt_restrict 应在类定义上方、@register 下方
-# 请查阅最新 DataFlow 源码确认正确的叠加顺序
-```
-
-**注**：该 Issue 的准确修复依赖具体 DataFlow 版本，建议查阅最新源码中 `@prompt_restrict` 的实际用法示例。
-
----
-
-## Issue #008 — LazyLoader 子包路径 import 失败
-
-**标题**：`ModuleNotFoundError` + `dataflow.operators.reasoning.refine`
+**标题**：`ModuleNotFoundError` + KG 算子子包路径
 
 **症状关键词**：
 - `ModuleNotFoundError`
-- `dataflow.operators.reasoning.refine`
 - `ImportError` + 算子类名
+- `dataflow.operators.general_kg.xxx`
 
 **根因**：
 
-DataFlow 使用 LazyLoader 机制，算子类通过父模块的 `__init__.py` 注册并懒加载。直接 import 子包路径（如 `from dataflow.operators.reasoning.refine.cot_llm_judge_refiner import CoTLLMJudgeRefiner`）会绕过 LazyLoader，在部分场景下导致 `ModuleNotFoundError`。
+DataFlow-KG 使用 LazyLoader 机制，算子类通过父模块 `__init__.py` 注册并懒加载。直接 import 子包路径会绕过 LazyLoader，在部分场景下导致 `ModuleNotFoundError`。
 
 **解决方案**：
 
@@ -276,10 +218,173 @@ DataFlow 使用 LazyLoader 机制，算子类通过父模块的 `__init__.py` �
 
 ```python
 # ✅ 正确
-from dataflow.operators.reasoning import CoTLLMJudgeRefiner
+from dataflow.operators.general_kg import KGTripleExtraction, KGTupleValidity
+from dataflow.operators.domain_kg.medical_kg import MedKGTripleExtraction
+from dataflow.operators.temporal_kg import TKGTupleExtraction
 
-# ❌ 错误
-from dataflow.operators.reasoning.refine.cot_llm_judge_refiner import CoTLLMJudgeRefiner
+# ❌ 错误：直接用子包路径
+from dataflow.operators.general_kg.generate.kg_triple_extractor import KGTripleExtraction
+from dataflow.operators.general_kg.filter.kg_tuple_validation import KGTupleValidity
+```
+
+验证 LazyLoader 管理的类名：
+
+```python
+import dataflow.operators.general_kg as kg
+print(kg._import_structure)
+```
+
+---
+
+## Issue #007 — `input_key_meta` 缺失导致 `ValueError`
+
+**标题**：`Missing required column(s): ['entity']` / `input_key_meta` 未正确传递
+
+**症状关键词**：
+- `Missing required column(s)`
+- `input_key_meta`
+- `ValueError` + `KGTripleExtraction`
+
+**根因**：
+
+`KGTripleExtraction.run()` 要求 DataFrame 中必须同时存在 `input_key`（原文列）和 `input_key_meta`（实体列）。`_validate_dataframe()` 会检查两列，**任一缺失都会立即抛出 `ValueError`**。
+
+常见触发场景：
+1. Pipeline 中 `entity_extractor_step1` 的 `output_key` 与 `triple_extractor_step2` 的 `input_key_meta` 名称不一致（参见 Issue #003）
+2. 调用 `KGTripleExtraction.run()` 时遗漏了 `input_key_meta` 参数，使用了默认值 `"entity"`，而 DataFrame 中实体列名实际为其他名称
+3. 独立测试脚本中手动构造 DataFrame 时漏加实体列
+
+```python
+# kg_triple_extractor.py _validate_dataframe()
+required_keys = [self.input_key, self.input_key_meta]   # 两列都必须存在
+missing = [k for k in required_keys if k not in dataframe.columns]
+if missing:
+    raise ValueError(f"Missing required column(s): {missing}")
+```
+
+**解决方案**：
+
+```python
+# ❌ 错误：entity_extractor 输出 "entities"，triple_extractor 读 "entity"（默认值）
+self.entity_extractor_step1.run(
+    storage=self.storage.step(),
+    input_key="raw_chunk",
+    output_key="entities",     # 写入列名
+)
+self.triple_extractor_step2.run(
+    storage=self.storage.step(),
+    input_key="raw_chunk",
+    # input_key_meta 默认为 "entity"，但列名实际是 "entities" → ValueError
+    output_key="triple",
+)
+
+# ✅ 正确：显式传入 input_key_meta，保持与上一步 output_key 一致
+self.entity_extractor_step1.run(
+    storage=self.storage.step(),
+    input_key="raw_chunk",
+    output_key="entity",
+)
+self.triple_extractor_step2.run(
+    storage=self.storage.step(),
+    input_key="raw_chunk",
+    input_key_meta="entity",   # 与 entity_extractor output_key 一致
+    output_key="triple",
+)
+```
+
+---
+
+## Issue #008 — `triple_type` 值错误导致 Prompt 与数据格式不匹配
+
+**标题**：三元组全部返回空列表 / LLM 输出格式与解析逻辑不符
+
+**症状关键词**：
+- `triple_type`
+- `triple` 列全为空列表 `[]`
+- `KGTripleExtraction` / `KGTupleValidity`
+- 无报错但输出为空
+
+**根因**：
+
+`KGTripleExtraction` 和 `KGTupleValidity` 均通过 `triple_type` 参数在 `__init__` 中选择 Prompt 类
+
+**解决方案**：
+
+```python
+# ❌ 错误：拼写错误，prompt_template 未初始化
+self.triple_extractor = KGTripleExtraction(
+    llm_serving=self.llm_serving,
+    triple_type="Relation",   # 大小写错误，既不触发 "attribute" 也不触发 "relation"
+)
+
+# ✅ 正确：只接受 "relation" 或 "attribute"（全小写）
+self.triple_extractor = KGTripleExtraction(
+    llm_serving=self.llm_serving,
+    triple_type="relation",   # 关系型三元组
+)
+# 或
+self.triple_extractor = KGTripleExtraction(
+    llm_serving=self.llm_serving,
+    triple_type="attribute",  # 属性型三元组
+)
+```
+
+Pipeline 中两个算子的 `triple_type` 必须一致，否则 Prompt 和解析逻辑错位。
+
+---
+
+## Issue #009 — `merge_to_input=True` 导致下游步骤找不到输出列
+
+**标题**：下游算子报 `Missing required column` / `merge_to_input` 后列名未变更
+
+**症状关键词**：
+- `merge_to_input`
+- `Missing required column(s)`
+- `KGTupleValidity`
+- 下游步骤找不到 `valid_triple` 列
+
+**根因**：
+
+`KGTupleValidity` 的 `merge_to_input=True` 模式会将验证结果**原地覆盖** `input_key` 列（如 `"triple"`），而**不会**创建 `output_key`（如 `"valid_triple"`）列
+
+**解决方案**：
+
+```python
+# ❌ 错误：merge_to_input=True 但下游用 "valid_triple" 列
+self.validity_step = KGTupleValidity(
+    llm_serving=self.llm_serving,
+    merge_to_input=True,       # 结果写回 "triple" 列
+)
+self.validity_step.run(
+    storage=self.storage.step(),
+    input_key="triple",
+    output_key="valid_triple",
+)
+# ↑ 下游若读 "valid_triple" → KeyError，"valid_triple" 列不存在
+
+# ✅ 方式1：不使用 merge_to_input，让结果写入 output_key 新列
+self.validity_step = KGTupleValidity(
+    llm_serving=self.llm_serving,
+    merge_to_input=False,      # 默认，结果写入 "valid_triple" 新列
+)
+self.validity_step.run(
+    storage=self.storage.step(),
+    input_key="triple",
+    output_key="valid_triple",
+)
+# 下游用 input_key="valid_triple" 正常读取
+
+# ✅ 方式2：使用 merge_to_input，下游也用原列名 "triple"
+self.validity_step = KGTupleValidity(
+    llm_serving=self.llm_serving,
+    merge_to_input=True,       # 结果写回 "triple" 列
+)
+self.validity_step.run(
+    storage=self.storage.step(),
+    input_key="triple",
+    output_key="valid_triple",
+)
+# 下游用 input_key="triple"（已被覆盖为过滤后的结果）
 ```
 
 ---
@@ -290,13 +395,14 @@ from dataflow.operators.reasoning.refine.cot_llm_judge_refiner import CoTLLMJudg
 |---|---|
 | `Unexpected key 'xxx' in operator` | #001 |
 | `No object named 'Xxx' found in 'operators' registry` | #002 |
-| `Key Matching Error` / `does not match any output keys` | #003 |
+| `KeyError` / `Missing required column` + Pipeline 上下文 | #003 |
 | `You must call storage.step() before` | #004 |
 | `DummyStorage` + `AttributeError` / `TypeError` | #005 |
-| `'NoneType' object has no attribute 'strip'` + `re.split` | #006 |
-| `prompt_restrict` 未生效 | #007 |
-| `ModuleNotFoundError` + `dataflow.operators.reasoning.refine` | #008 |
+| `ModuleNotFoundError` + `dataflow.operators.general_kg.xxx` | #006 |
+| `Missing required column(s)` + `input_key_meta` / `KGTripleExtraction` | #007 |
+| `triple` 列全为空 / `AttributeError: 'KGTripleExtraction' object has no attribute 'prompt_template'` | #008 |
+| `Missing required column(s): ['valid_triple']` + `merge_to_input` | #009 |
 
 ---
 
-*本文件由 dataflow-dev skill 维护，新增 Issue 时请同步更新 SKILL.md 诊断流程的快速匹配表。*
+*本文件由 dataflow-kg-dev skill 维护，新增 Issue 时请同步更新快速匹配表。*
