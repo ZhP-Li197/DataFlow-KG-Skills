@@ -1,679 +1,438 @@
-# DataFlow-Skills
+# DataFlow-KG-Skills
 
-Reusable agent skills for DataFlow workflows.
+用于 DataFlow-KG 知识图谱工作流的可复用 Agent Skills。
 
-中文文档: [README_zh.md](./README_zh.md)
-
-## Prerequisites: Install Claude Code
-
-### Comparison of Usage Methods
-
-| Method | Best For | Pros | Cons |
-|--------|----------|------|------|
-| Web | Complete beginners | No installation required | Limited features |
-| CLI (command line) | Developers | Full-featured, highly integrated | Requires command-line familiarity |
-| Editor integration (VS Code / Cursor, etc.) | Daily development | Seamless workflow | Depends on plugins and environment setup |
-
-**Recommendation:**
-- Complete beginner → Try the web at [https://claude.ai/](https://claude.ai/) first
-- Want to use it for development → Go straight to CLI
-- Already familiar → Consider editor integration
-
-This guide focuses on the **CLI**.
+English version: [README.md](./README.md) | 原版中文文档: [README_zh.md](./README_zh.md)
 
 ---
 
-### Installing Claude Code CLI
+## 概览
 
-#### 1. Prerequisites
+本仓库包含针对 **DataFlow-KG** 知识图谱场景的专项技能集，覆盖 KG Pipeline 生成、算子引用、算子开发、Prompt 模板构建四大能力模块。
 
-- A Claude account — register at [claude.ai](https://claude.ai) (skip if using a third-party compatible provider)
-- A command-line tool:
-  - Mac / Linux: open Terminal
-  - Windows: open PowerShell or install WSL
+| Skill | 斜杠命令 | 核心能力 |
+|---|---|---|
+| `generating-dataflow-kg-pipeline` | `/generating-dataflow-kg-pipeline` | 从任务描述生成完整 KG Pipeline 代码 |
+| `core_kg` | 被 Pipeline 生成器加载 | 所有核心 KG 算子的 API 参考文档 |
+| `dataflow-kg-dev` | `/dataflow-dev` | KG 算子/Pipeline/Prompt 开发专家 |
+| `prompt-template-builder` | `/prompt-template-builder` | 为 KG 算子生成 DIYPromptABC 模板类 |
 
-#### 2. Install via Official Script (Recommended)
+---
 
-**macOS / Linux / WSL:**
+## 前置条件：安装 Claude Code
+
+### 安装 CLI
+
 ```bash
+# macOS / Linux
 curl -fsSL https://claude.ai/install.sh | bash
-```
 
-**Windows PowerShell:**
-```powershell
+# Windows PowerShell
 irm https://claude.ai/install.ps1 | iex
-```
 
-**Windows CMD:**
-```cmd
-curl -fsSL https://claude.ai/install.cmd -o install.cmd && install.cmd && del install.cmd
-```
-
-Verify the installation:
-```bash
-claude --version
-```
-A version number means it installed successfully.
-
-#### 3. Install via npm
-
-Prerequisite: Node.js must be installed (verify: `node --version`; if missing, download from [nodejs.org](https://nodejs.org))
-
-```bash
+# 或通过 npm
 npm install -g @anthropic-ai/claude-code
-```
-
-If the download is slow, use a mirror:
-```bash
+# 网络较慢时使用国内镜像
 npm install -g @anthropic-ai/claude-code --registry=https://registry.npmmirror.com
 ```
 
-
-#### 4. Updating
-
-Update manually:
+验证安装：
 ```bash
-claude update
+claude --version
 ```
 
-Claude Code checks for updates at launch and installs them in the background; the new version takes effect on the next launch. Configure update behavior in `settings.json`:
+### 添加本仓库中的 Skills
 
-```json
-{
-  "autoUpdatesChannel": "stable"
-}
+```bash
+git clone https://github.com/haolpku/DataFlow-KG-Skills.git
+mkdir -p ~/.claude/skills   # 个人级，所有项目可用
+
+# 按需复制所需 skill
+cp -r DataFlow-KG-Skills/generating-dataflow-kg-pipeline ~/.claude/skills/
+cp -r DataFlow-KG-Skills/core_kg                         ~/.claude/skills/
+cp -r DataFlow-KG-Skills/dataflow-kg-dev                 ~/.claude/skills/
+cp -r DataFlow-KG-Skills/prompt-template-builder         ~/.claude/skills/
 ```
 
-Disable automatic updates:
-```json
-{
-  "env": {
-    "DISABLE_AUTOUPDATER": "1"
-  }
-}
-```
-
-> **Note:** Homebrew and WinGet installations do not support automatic updates. Update manually:
-> ```bash
-> brew upgrade claude-code           # macOS
-> winget upgrade Anthropic.ClaudeCode  # Windows
-> ```
-
-#### 5. Common Installation Issues
-
-| Problem | Cause | Solution |
-|---------|-------|----------|
-| `npm command not found` | Node.js not installed | Download from [nodejs.org](https://nodejs.org) |
-| `permission denied` | Insufficient permissions | Mac/Linux: prefix with `sudo`; Windows: run PowerShell as Administrator |
-| Slow or stalled installation | Network issues | Use a mirror: `--registry=https://registry.npmmirror.com` |
-
-#### Terminal Recommendations
-
-- [WezTerm](https://wezterm.org/) (cross-platform)
-- [Alacritty](https://alacritty.org/) (cross-platform)
-- [Ghostty](https://ghostty.org/) (Linux / macOS)
-- [Kitty](https://github.com/kovidgoyal/kitty) (Linux / macOS)
+> Claude Code 从 `.claude/skills/<skill-name>/SKILL.md` 自动发现 Skills，`SKILL.md` frontmatter 中的 `name` 字段即斜杠命令名。
 
 ---
 
-## `generating-dataflow-pipeline`
-video tutorial: [Generate DataFlow Pipeline](https://github.com/user-attachments/assets/ca1fefbf-9bf7-469f-b856-b201952fb99b)
+## `generating-dataflow-kg-pipeline`
 
-Reasoning-guided pipeline planner that generates standard DataFlow pipeline code from a task description and sample data.
+推理引导式 KG Pipeline 规划工具，根据任务目标和样本数据自动生成标准 DataFlow-KG Pipeline 代码。
 
-### What It Does
+### 功能说明
 
-Given a **target** (what the pipeline should achieve) and a **sample JSONL file** (1-5 representative rows), this skill:
+给定 **目标描述** 和 **样本 JSON 文件**（1–5 条代表性数据），该 Skill 将：
 
-1. Reads and analyzes the sample data — infers field types, content characteristics, and task nature
-2. Selects operators from six core primitives (with extended operators available when needed) using a mandatory decision table
-3. Validates field dependencies across the operator chain
-4. Outputs a two-stage result: an intermediate operator decision (JSON) followed by a complete, runnable Python pipeline
+1. 读取并分析样本数据，推断字段类型、KG 类型信号与数据模态
+2. 从决策表中选取匹配的 KG 算子链（通用 / 时序 / 多模态 / 超关系）
+3. 校验算子间的字段依赖
+4. 输出两阶段结果：算子决策 JSON → 完整可运行的 Python Pipeline 代码
 
-### Quick Start
+### 快速上手
 
-#### 1. Add the Skill
+#### 1. 准备样本数据
 
-Clone this repository and copy the skill directories into your Claude Code skills folder:
+KG Pipeline 使用 JSON 数组格式（而非 JSONL），每条记录为一个 JSON 对象：
 
-```bash
-git clone https://github.com/haolpku/DataFlow-Skills.git
-mkdir -p .claude/skills
-
-# Project-level (this project only)
-cp -r DataFlow-Skills/generating-dataflow-pipeline .claude/skills/generating-dataflow-pipeline
-cp -r DataFlow-Skills/core_text .claude/skills/core_text
-
-# Or personal-level (all your projects)
-cp -r DataFlow-Skills/generating-dataflow-pipeline ~/.claude/skills/generating-dataflow-pipeline
-cp -r DataFlow-Skills/core_text ~/.claude/skills/core_text
+```json
+[
+  {"raw_chunk": "2024年，苹果公司在旧金山发布了iPhone16。"},
+  {"raw_chunk": "特斯拉于2023年在德克萨斯州开设新工厂。"}
+]
 ```
 
-Claude Code discovers skills from `.claude/skills/<skill-name>/SKILL.md`. The `name` field in `SKILL.md` frontmatter becomes the `/slash-command`. For more details, see the [official skills documentation](https://code.claude.com/docs/en/skills).
-
-#### 2. Prepare Your Data
-
-Create a JSONL file (one JSON object per line) with 1–5 representative rows:
-
-```jsonl
-{"product_name": "Laptop", "category": "Electronics"}
-{"product_name": "Coffee Maker", "category": "Appliances"}
-```
-
-#### 3. Run the Skill
-
-In Claude Code, invoke `/generating-dataflow-pipeline` and describe your target:
+#### 2. 调用 Skill
 
 ```
-/generating-dataflow-pipeline
-Target: Generate product descriptions and filter high-quality ones
-Sample file: ./data/products.jsonl
-Expected outputs: generated_description, quality_score
+/generating-dataflow-kg-pipeline
+Target: 从新闻文本中抽取时序知识图谱四元组，并生成路径问答对
+Sample file: ./data/news.json
+Expected outputs: QA_pairs
 ```
 
-#### 4. Review the Output
+#### 3. 查看输出
 
-The skill returns a two-stage result:
+1. **Stage 1 算子决策**：KG 类型、算子链、字段流转、选型理由（JSON）
+2. **字段映射**：区分样本已有字段与需生成字段
+3. **有序算子列表**：每个算子的 `run()` 调用与 `input_key`/`output_key`
+4. **推理总结**：链路设计原因与权衡说明
+5. **完整 Pipeline 代码**：遵循 `PipelineABC` 标准结构的可执行 Python 代码
+6. **可调参数/注意事项**：`lang`、`triple_type`、`hop`、`qa_type` 等调优建议
 
-1. **Intermediate Operator Decision** — JSON with operator chain, field flow, and reasoning
-2. **Field Mapping** — which fields exist vs. need to be generated
-3. **Ordered Operator List** — operators in execution order with justification
-4. **Reasoning Summary** — why this design satisfies the target
-5. **Complete Pipeline Code** — full executable Python following standard structure
-6. **Adjustable Parameters / Caveats** — tunable knobs and debugging tips
+### KG 类型检测规则
 
-### Six Core Operators
+| 样本信号 | KG 类型 | 算子族 |
+|---|---|---|
+| 纯文本（`raw_chunk`） | 通用 KG | `general_kg` |
+| 文本含时间戳/日期 | 时序 KG | `temporal_kg` |
+| 文本 + 图像（`img_dict`/`vis_url`） | 多模态 KG | `multi_model_kg` |
+| 含多元关系/属性限定词 | 超关系 KG | `hyper_relation_kg` |
 
-| Operator | Purpose | LLM? |
-|----------|---------|------|
-| `PromptedGenerator` | Single-field LLM generation | Yes |
-| `FormatStrPromptedGenerator` | Multi-field template-based generation | Yes |
-| `Text2MultiHopQAGenerator` | Multi-hop QA pair construction from text | Yes |
-| `PromptedFilter` | LLM-based quality scoring & filtering | Yes |
-| `GeneralFilter` | Rule-based deterministic filtering | No |
-| **KBC Trio** (3 operators, always together in order) | File/URL -> Markdown -> chunks -> clean text | Partial |
+### 算子选用决策表
 
-### Generated Pipeline Structure
+| KG 类型 | 任务 | 算子链（按序） |
+|---|---|---|
+| 通用 | 文本 → KG 三元组 | `KGEntityExtraction` → `KGTripleExtraction` → `KGTupleNormalization` |
+| 通用 | 路径问答 | 抽取链 → `KGRelationTuplePathGenerator` → `KGRelationTriplePathQAGeneration` |
+| 通用 | 子图问答 | 抽取链 → `KGEntityBasedSubgraphSampling` → `KGRelationTripleSubgraphQAGeneration` |
+| 通用 | 推理补全 | 抽取链 → `KGRelationTripleInference(merge_to_input=True)` |
+| 时序 | 文本 → 四元组 | `TKGTupleExtraction(triple_type="relation")` |
+| 时序 | 路径时序问答 | `TKGTupleExtraction` → `KGRelationTuplePathGenerator(input_key="tuple")` → `TKGTuplePathQAGeneration` |
+| 多模态 | 文本+图像 → 多模态 KG + QA | `KGEntityExtraction` → `KGTripleExtraction` → `MMKGVisualTripleExtraction` → `MMKGEntityBasedSubgraphSampling` → `MMKGSubgraphBaseQAGeneration` |
+| 超关系 | 文本 → 超元组 | `KGEntityExtraction` → `HRKGTripleExtraction` |
+| 超关系 | 路径问答 | `KGEntityExtraction` → `HRKGTripleExtraction` → `KGRelationTuplePathGenerator(input_key="tuple")` → `HRKGRelationTriplePathQAGeneration` |
 
-All generated pipelines follow the same standard structure:
+### 生成的 Pipeline 结构
 
 ```python
-from dataflow.operators.core_text import PromptedGenerator, PromptedFilter
-from dataflow.serving import APILLMServing_request
+from dataflow.pipeline import PipelineABC
 from dataflow.utils.storage import FileStorage
+from dataflow.serving import APILLMServing_request
+from dataflow.operators.general_kg import KGEntityExtraction, KGTripleExtraction
 
-class MyPipeline:
+class MyKGPipeline(PipelineABC):
     def __init__(self):
+        super().__init__()
         self.storage = FileStorage(
-            first_entry_file_name="./data/input.jsonl",  # User-provided path
+            first_entry_file_name="./data/input.json",
             cache_path="./cache",
-            file_name_prefix="step",
-            cache_type="jsonl"
+            file_name_prefix="kg_pipeline_step",
+            cache_type="json",
         )
         self.llm_serving = APILLMServing_request(
             api_url="https://api.openai.com/v1/chat/completions",
-            model_name="gpt-4o",
-            max_workers=10
+            key_name_of_api_key="DF_API_KEY",
+            model_name="gpt-4o-mini",
+            max_workers=4,
         )
-        # Operator instances ...
+        self.step1_entity = KGEntityExtraction(self.llm_serving, lang="zh")
+        self.step2_triple = KGTripleExtraction(self.llm_serving, triple_type="relation", lang="zh")
 
     def forward(self):
-        # Sequential operator.run() calls, each with storage.step()
-        ...
+        self.step1_entity.run(storage=self.storage.step(), input_key="raw_chunk", output_key="entity")
+        self.step2_triple.run(storage=self.storage.step(), input_key="raw_chunk", input_key_meta="entity", output_key="triple")
 
 if __name__ == "__main__":
-    pipeline = MyPipeline()
+    pipeline = MyKGPipeline()
+    pipeline.compile()
     pipeline.forward()
 ```
 
-Key rules:
-- `first_entry_file_name` is set to the exact user-provided JSONL path
-- Each `operator.run()` call uses `storage=self.storage.step()` for checkpointing
-- Fields propagate forward: a field must exist in the sample or be output by a prior step before it can be consumed
+---
 
-### Extended Operators
+## `core_kg`
 
-Beyond the 6 core primitives, DataFlow provides additional operators. See the [`core_text`](#core_text) section for the full operator reference.
+`generating-dataflow-kg-pipeline` 的扩展算子参考库，提供所有 DataFlow-KG 核心算子的逐算子 API 文档。
 
-### Adding a New Operator
+### 已文档化算子（✅）
 
-Prerequisite: the new operator's skill definition already exists (with `SKILL.md`, `examples/good.md`, `examples/bad.md`, etc.).
+**生成类（Generate）**
 
-#### As an Extended Operator
+| 算子 | 说明 |
+|---|---|
+| `KGEntityExtraction` | 从文本中抽取实体，作为所有三元组抽取的锚点 |
+| `KGTripleExtraction` | 给定文本与实体列表，抽取关系或属性三元组 |
+| `KGRelationTripleInference` | 基于 LLM 的 KG 闭包推理，可合并回原三元组列 |
+| `KGRelationTripleSubgraphQAGeneration` | 基于采样子图生成问答对 |
+| `KGRelationTriplePathQAGeneration` | 基于 1/2 跳路径生成问答对 |
+| `TKGTupleExtraction` | 从文本抽取带时间戳的四元组 |
+| `TKGTuplePathQAGeneration` | 生成时序感知的路径问答（4 种 `qa_type`） |
+| `MMKGVisualTripleExtraction` | 基于 VLM 从本地图像+实体列表抽取视觉三元组 |
+| `MMKGSubgraphBaseQAGeneration` | 基于子图+图像生成多模态问答 |
+| `HRKGTripleExtraction` | 抽取带限定词的超关系元组 |
+| `HRKGRelationTriplePathQAGeneration` | 超关系路径问答生成 |
 
-Two steps are required:
+**过滤类（Filter）**
 
-**Step 1.** Create an operator directory with its skill definition under any appropriate location (e.g., `core_text/<category>/`, or a separate skill package):
+| 算子 | 说明 |
+|---|---|
+| `KGEntityBasedSubgraphSampling` | BFS/跳数/随机游走子图采样（行扩展算子） |
+| `KGRelationTuplePathGenerator` | k 跳路径枚举（行扩展算子，泛化支持 triple/tuple 列） |
+| `MMKGEntityBasedSubgraphSampling` | 多模态子图采样，同步传播 `vis_url`/`vis_triple` |
 
-```
-<skill-directory>/<your-operator-name>/
-├── SKILL.md          # API reference (constructor, run() signature, execution logic, constraints)
-├── SKILL_zh.md       # Chinese translation (optional)
-└── examples/
-    ├── good.md       # Best-practice example
-    └── bad.md        # Common mistakes
-```
+**精炼类（Refine）**
 
-**Step 2.** Register the operator in `SKILL.md`'s **Extended Operator Reference** section. Add a row to the corresponding category table (Generate / Filter / Refine / Eval) with the operator name, subdirectory path, and description. Without this entry, the pipeline generator will not know the operator exists.
+| 算子 | 说明 |
+|---|---|
+| `KGTupleNormalization` | 基于 LLM 的同义词归一化与方向规范化 |
 
-#### Promoting to a Core Primitive (Optional)
+### 目录结构
 
-If the operator is used frequently enough to warrant priority selection, promote it by modifying `SKILL.md`:
+每个算子目录包含：
 
-1. **Preferred Operator Strategy** — Add to the core primitives list
-2. **Operator Selection Priority Rule** — Add a decision table row (when to use / when not to use)
-3. **Operator Parameter Signature Rule** — Add full constructor and `run()` signatures
-4. **Correct Import Paths** — Add the import path
-5. **Input File Content Analysis Rule** — Add input pattern matching if it handles a new data type
-6. **Extended Operator Reference** — Update or remove the entry from the extended table to avoid duplication with core primitives
-7. **Examples** — Add a complete example in `examples/` (recommended)
+- `SKILL.md` — 英文 API 参考（构造函数、`run()` 签名、执行逻辑、必须遵守的规则）
+- `SKILL_zh.md` — 中文版
+- `examples/good.md` — 最小可运行 Pipeline 示例
+
+### 字段命名约定
+
+| 字段 | 类型 | 生产算子 |
+|---|---|---|
+| `raw_chunk` | `str` | 输入 |
+| `entity` | 逗号分隔 `str` | `KGEntityExtraction` |
+| `triple` | `List[str]`（`"<subj> X <obj> Y <rel> Z"` 格式） | `KGTripleExtraction` |
+| `tuple` | `List[Dict\|str]`（时序或超关系） | `TKGTupleExtraction` / `HRKGTripleExtraction` |
+| `normalized_triple` | `List[str]` | `KGTupleNormalization` |
+| `inferred_triple` | `List[str]` | `KGRelationTripleInference` |
+| `subgraph` | `List[str]` | 采样算子 |
+| `{k}_hop_paths` | `List[str]`（如 `2_hop_paths`） | `KGRelationTuplePathGenerator` |
+| `QA_pairs` | `List[Dict]` | 所有 `*QAGeneration` 算子 |
 
 ---
 
-## `core_text`
+## `dataflow-kg-dev`
 
-Extended operator reference for [`generating-dataflow-pipeline`](#generating-dataflow-pipeline).
+DataFlow-KG 开发专家技能，加载完整架构知识，路由到六个专项工作流，覆盖 KG 开发全生命周期。
 
-Per-operator API documentation for all text processing operators used by the pipeline generator. When the 6 core primitives in `generating-dataflow-pipeline/SKILL.md` don't cover your task, consult the detailed references here.
+### 功能说明
 
-### Available Operators
+在 DataFlow-KG 仓库中调用 `/dataflow-dev` 后，该技能将：
 
-**Generate** (`core_text/generate/`)
+1. 加载 `context/knowledge_base.md`——KG 架构、API 参考、所有已注册算子
+2. 加载 `context/dev_notes.md`——KG 开发规范、最佳实践、LLM 响应容错模板
+3. 加载 `diagnostics/known_issues.md`——结构化"症状 → 根因 → 修复"诊断数据库
+4. 探测本地仓库状态（当前分支、最近提交、文件变更）
+5. 输出 1–3 行上下文摘要，自动路由到对应工作流
 
-- `prompted-generator` - Basic LLM generation
-- `format-str-prompted-generator` - Template-based generation
-- `chunked-prompted-generator` - Chunked text generation
-- `embedding-generator` - Generate embeddings
-- `retrieval-generator` - RAG generation
-- `bench-answer-generator` - Generate benchmark answers
-- `text2multihopqa-generator` - Multi-hop QA generation
-- `random-domain-knowledge-row-generator` - Random domain knowledge generation
-
-**Filter** (`core_text/filter/`)
-
-- `prompted-filter` - LLM scoring and filtering
-- `general-filter` - Rule-based numeric filtering
-- `kcentergreedy-filter` - Diversity-based filtering
-
-**Refine** (`core_text/refine/`)
-
-- `prompted-refiner` - LLM-based text rewriting
-- `pandas-operator` - Custom pandas operations
-
-**Eval** (`core_text/eval/`)
-
-- `prompted-evaluator` - LLM scoring
-- `bench-dataset-evaluator` - Evaluate benchmark datasets
-- `bench-dataset-evaluator-question` - Evaluate benchmark questions
-- `text2qa-sample-evaluator` - Evaluate QA samples
-- `unified-bench-dataset-evaluator` - Unified evaluation
-
-### Directory Structure
-
-Each operator folder contains:
-
-- `SKILL.md` - English skill documentation describing use cases, usage, imports, parameters, and examples
-- `SKILL_zh.md` - Chinese documentation
-- `examples/good.md` - Correct usage with simple single-operator pipeline, sample input and output
-- `examples/bad.md` - Common mistakes
-
----
-
-## `dataflow-operator-builder`
-
-Video tutorial: [Build DataFlow Operator](https://files.catbox.moe/uzk3ag.mp4)
-
-Production-grade scaffold skill for new DataFlow operators (`generate/filter/refine/eval`), generating implementation skeletons, CLI wrappers, and test files in one run.
-
-### What It Does
-
-Given an **operator spec** (package name, operator type, input/output keys, etc.), this skill:
-
-1. Validates the spec against constraint rules in `references/` to catch registration, contract, and naming issues early
-2. Generates a complete operator implementation skeleton (`generate`, `filter`, `refine`, or `eval`)
-3. Creates a standalone CLI module under `cli/` for batch jobs and integration testing without extra glue code
-4. Outputs a two-stage result: a `--dry-run` preview of the file plan, then actual file writes after confirmation
-
-### Quick Start
-
-#### 1. Add the Skill
-
-Clone this repository and copy the skill directory into your Claude Code skills folder:
+### 快速上手
 
 ```bash
-git clone https://github.com/haolpku/DataFlow-Skills.git
-
-# Project-level (this project only)
-cp -r DataFlow-Skills/dataflow-operator-builder .claude/skills/dataflow-operator-builder
-
-# Or personal-level (all your projects)
-cp -r DataFlow-Skills/dataflow-operator-builder ~/.claude/skills/dataflow-operator-builder
+cd /path/to/DataFlow-KG    # 必须是仓库根目录
+claude                     # 启动 Claude Code
 ```
 
-Claude Code discovers skills from `.claude/skills/<skill-name>/SKILL.md`.
-
-#### 2. Run the Skill
-
-**Mode A (default): Interactive Interview**
-
-Just invoke the skill — the agent collects everything it needs through two rounds of batch questions. No files to prepare:
-
 ```
-/dataflow-operator-builder
+/dataflow-dev
+我需要一个新的 filter 算子，过滤掉实体数量少于 3 的三元组行。
 ```
 
-- Round 1: structural fields (package name, operator type, input/output keys, etc.)
-- Round 2: implementation details (LLM usage, CLI module name, test prefix, etc.)
+### 六个子命令工作流
 
-Each question includes a recommended option with a short rationale. The agent proceeds to generation after both rounds.
+| 意图关键词 | 工作流 |
+|---|---|
+| 新建算子 / new operator / 新建 KG 算子 | 算子创建（防重复检查 → 规格确认 → 代码生成 → 注册提醒） |
+| 新建 Pipeline / new pipeline / KG pipeline | Pipeline 创建（算子选择 → 按 `storage.step()` 模式生成代码） |
+| 新建 Prompt / new prompt / KG prompt | Prompt 创建（`PromptABC`/`DIYPromptABC`、注册装饰器、`@prompt_restrict` 位置） |
+| 报错 / error / KeyError / AttributeError | 诊断（匹配 known_issues.md → 根因 + 修复示例代码） |
+| 审查 / review / check / 规范检查 | 代码审查（算子与 Pipeline 双 Checklist，逐项检查） |
+| 更新知识库 / sync / check updates / 仓库有新算子 | 知识库更新（检测新算子文件、与 knowledge_base.md 对比、给出更新步骤） |
 
-**Mode B: Direct Spec (when you already have a spec)**
-
-If you already have an operator spec file (JSON), skip the interview and run directly:
+### 算子创建硬性规范 Checklist
 
 ```
-/dataflow-operator-builder --spec path/to/spec.json --output-root path/to/repo
+✓ 继承 OperatorABC，调用 super().__init__()
+✓ 类上方有 @OPERATOR_REGISTRY.register() 装饰器
+✓ run() 第一个参数为 storage: DataFlowStorage
+✓ run() 输入列名以 input_ 开头，输出列名以 output_ 开头
+✓ run() 返回输出 key 列表
+✓ storage.read("dataframe") 和 storage.write(df) 都存在
+✓ 包含 _validate_dataframe() 方法，检查输入列存在、输出列不冲突
+✓ LLM 驱动算子：成员变量必须命名为 self.llm_serving
+✓ LLM 响应有完整 try/except 容错，失败返回与输出类型匹配的空值
+✓ @staticmethod get_desc(lang: str = "en") 支持 zh/en
+✓ __init__.py TYPE_CHECKING 块已注册
 ```
 
-Example spec:
+### 诊断速查表（KG 专项）
 
-```json
-{
-  "package_name": "dataflow_ext_demo",
-  "operator_type": "filter",
-  "operator_class_name": "DemoQualityFilter",
-  "operator_module_name": "demo_quality_filter",
-  "input_key": "raw_text",
-  "output_key": "is_valid",
-  "uses_llm": false
-}
+| 报错关键词 | 对应 Issue |
+|---|---|
+| `Unexpected key 'xxx' in operator` | #001 — 配置参数命名（仅警告） |
+| `No object named 'Xxx' found in 'operators' registry` | #002 — `__init__.py` TYPE_CHECKING 块缺少声明 |
+| `Key Matching Error` / `does not match any output keys` | #003 — Pipeline key 不一致 |
+| `You must call storage.step() before` | #004 — 缺少 `storage.step()` 调用 |
+| `DummyStorage` + `AttributeError` | #005 — DummyStorage API 限制 |
+| `ModuleNotFoundError` + `dataflow.operators.general_kg.xxx` | #006 — LazyLoader 路径错误，应从父模块 import |
+| `Missing required column(s)` + `input_key_meta` | #007 — `input_key_meta` 缺失 |
+| `triple` 列全为空 / `prompt_template` 属性报错 | #008 — `triple_type` 值错误 |
+| `Missing required column(s): ['valid_triple']` + `merge_to_input` | #009 — `merge_to_input=True` 导致下游步骤找不到输出列 |
+
+### CLI 命令
+
+DataFlow-KG 使用 `dfkg` 而非 `dataflow`：
+
+```bash
+dfkg -v      # 查看版本
+dfkg env     # 环境检查
+dfkg init    # 初始化项目
 ```
 
-Required: `package_name`, `operator_type`, `operator_class_name`, `operator_module_name`, `input_key`, `output_key`, `uses_llm`. Optional: `cli_module_name`, `test_file_prefix`, `overwrite_strategy`, `validation_level`.
+### 文件结构
 
-#### 4. Review the Output
-
-The skill returns a two-stage result:
-
-1. **Create/update plan** — `--dry-run` lists all files to be generated without writing anything
-2. **Operator skeleton** — class definition, `run()` signature, and registration entry
-3. **CLI module** — executable batch script under `cli/`
-4. **Test files** — `unit`, `registry`, and `smoke` baselines ready for CI
-
-### Helpful Flags
-
-- `--dry-run`: preview create/update plan without modifying files
-- `--overwrite {ask-each,overwrite-all,skip-existing}`: control overwrite behavior safely in existing repos
-- `--validation-level {none,basic,full}`: choose how strict pre-write checks should be
-
-### Generated Artifacts
-
-| Artifact | Path | Description |
-|----------|------|-------------|
-| Operator implementation | `<package>/<module_name>.py` | Class definition, `run()` signature, and registry entry |
-| CLI module | `cli/<cli_module_name>.py` | Standalone batch script |
-| Unit test | `tests/unit/test_<prefix>.py` | Basic unit test |
-| Registry test | `tests/registry/test_<prefix>_registry.py` | Validates correct operator registration |
-| Smoke test | `tests/smoke/test_<prefix>_smoke.py` | End-to-end minimal acceptance |
-
-### Generated Operator Skeleton
-
-All generated operators follow the same standard structure:
-
-```python
-from dataflow.operators.base import BaseOperator
-from dataflow.utils.storage import FileStorage
-
-class DemoQualityFilter(BaseOperator):
-    def __init__(self, threshold: float = 0.5):
-        self.threshold = threshold
-
-    def run(self, storage: FileStorage) -> FileStorage:
-        # Implement filtering logic here
-        ...
-        return storage
-
-# Registry entry (auto-generated by the skill)
-OPERATOR_REGISTRY.register("DemoQualityFilter", DemoQualityFilter)
 ```
-
-Key rules:
-- Must extend `BaseOperator` and implement `run()`
-- `run()` accepts and returns a `FileStorage` instance for chain propagation
-- Must be registered via `OPERATOR_REGISTRY` to be discoverable by pipelines
-- The CLI module calls `run()` directly via `--input-file` / `--output-file`, independent of pipeline context
+dataflow-kg-dev/
+├── SKILL.md
+├── context/
+│   ├── knowledge_base.md       # KG 架构、API、所有算子（只读参考）
+│   └── dev_notes.md            # KG 开发规范、最佳实践
+├── diagnostics/
+│   └── known_issues.md         # 结构化 Issue 数据库 #001–#009
+├── templates/
+│   ├── operator_template.py    # KG 算子骨架
+│   ├── pipeline_template.py    # KG Pipeline 骨架
+│   └── prompt_template.py      # KG Prompt 骨架
+└── scripts/
+    └── check_updates.sh        # 仓库变更感知脚本
+```
 
 ---
 
 ## `prompt-template-builder`
 
-Video tutorial: [DataFlow Prompt Template Builder](https://files.catbox.moe/d1pdr9.mp4)
+为已有 KG 算子构建/修订 `DIYPromptABC` prompt 模板类，按算子接口契约对齐，输出两阶段可审计结果。
 
-Skill for building/revising DataFlow prompt templates for existing operators, with type-aligned template selection and two-stage auditable outputs.
+### 功能说明
 
-### What It Does
+给定 **目标算子** 和 **业务目标**，该 Skill 将：
 
-Given a **target operator** (operator name, constraints, input arguments, etc.), this skill:
+1. 查阅算子兼容矩阵（`references/operator-compatibility-matrix.md`），解析目标算子的 `build_prompt` 参数、`run_input_keys`、输出 schema
+2. 输出 Stage 1 决策 JSON：模板选型原因、参数映射、输出契约、静态检查项
+3. 输出 Stage 2 最终产物：完整 `DIYPromptABC` 子类代码、集成代码片段、静态验收结果
 
-1. Checks operator compatibility and selects the right template style (e.g. `DIYPromptABC` or `FormatStrPrompt`) to ensure the template matches operator expectations
-2. Outputs a Stage 1 decision JSON: template strategy, argument mapping, output contract, and static acceptance checks — for code review and traceability
-3. Outputs a Stage 2 final deliverable: template/config content, integration snippet, and acceptance walkthrough — ready for developers and QA to act on
+### 快速上手
 
-### Quick Start
-
-#### 1. Add the Skill
-
-Clone this repository and copy the skill directory into your Claude Code skills folder:
-
-```bash
-git clone https://github.com/haolpku/DataFlow-Skills.git
-
-# Project-level (this project only)
-cp -r DataFlow-Skills/prompt-template-builder .claude/skills/prompt-template-builder
-
-# Or personal-level (all your projects)
-cp -r DataFlow-Skills/prompt-template-builder ~/.claude/skills/prompt-template-builder
-```
-
-Claude Code discovers skills from `.claude/skills/<skill-name>/SKILL.md`.
-
-#### 2. Run the Skill
-
-**Mode A (default): Interactive Interview**
-
-Just invoke the skill — the agent collects everything it needs through two rounds of batch questions. No files to prepare:
+#### 方式 A：交互式采访（默认）
 
 ```
 /prompt-template-builder
 ```
 
-- Round 1: structural layer (target scenario, operator name, output contract, constraints)
-- Round 2: implementation layer (argument signatures, boundary samples, acceptance preferences)
+- **Round 1**：结构层（任务类型、目标算子、输出约束强度、Prompt 风格、约束来源）
+- **Round 2**：实现层（`build_prompt` 入参、输出格式细节、样例覆盖策略、验收重点）
 
-Each question includes a recommended option with a short rationale. The agent then proceeds to the two-stage generation.
-
-**Mode B: Direct Spec (when you already have a spec)**
-
-If you already have a prompt spec file (JSON), skip the interview and run directly:
+#### 方式 B：直接指定 Spec
 
 ```
 /prompt-template-builder --spec path/to/prompt_spec.json
 ```
 
-Example spec:
+Spec 示例：
 
 ```json
 {
-  "Target": "Generate concise e-commerce selling points",
-  "OP_NAME": "PromptedGenerator",
-  "Constraints": "Professional tone; <= 80 Chinese chars",
-  "Arguments": ["product_name", "category"]
+  "Target": "从新闻文本中抽取实体关系三元组",
+  "OP_NAME": "KGTripleExtraction",
+  "KG_Category": "GENERAL_KG",
+  "Arguments": ["text", "entities"],
+  "Constraints": "仅抽取文本中明确存在的关系，禁止虚构"
 }
 ```
 
-Required: `Target`, `OP_NAME`. Recommended: `Constraints`, `Expected Output`, `Arguments`, `Sample Cases`, `Tone/Style`, `Validation Focus`.
+必填字段：`Target`、`OP_NAME`。可选：`KG_Category`、`run_input_keys`、`Constraints`、`Expected Output`、`Arguments`、`Sample Cases`。
 
-#### 4. Review the Output
+### 输出格式
 
-The skill returns a two-stage result:
-
-1. **Stage 1 (decision JSON)** — template strategy, argument mapping, output contract, and static checks (including `prompt_template_type_aligned`)
-2. **Stage 2 (final deliverable)** — template/config content, integration code snippet, and acceptance walkthrough
-
-### Supported Template Types
-
-| Template Type | Compatible Operators | Description |
-|---------------|---------------------|-------------|
-| `DIYPromptABC` | `PromptedGenerator`, `PromptedFilter`, `PromptedRefiner`, etc. | Fully custom system/user prompt with field interpolation |
-| `FormatStrPrompt` | `FormatStrPromptedGenerator` | Python f-string style multi-field template |
-
-### Stage 1 Decision JSON Format
+**Stage 1 决策 JSON**
 
 ```json
 {
-  "prompt_template_type_aligned": "DIYPromptABC",
-  "strategy": "Single-field generation using system+user two-layer prompt",
-  "argument_mapping": {
-    "product_name": "product name",
-    "category": "product category"
-  },
-  "output_contract": "Professional tone, <= 80 Chinese characters, ending with a selling-point phrase",
+  "op_name": "KGTripleExtraction",
+  "prompt_class": "MyKGTripleExtractionPrompt",
+  "arguments": ["text", "entities"],
+  "output_contract": "JSON: {\"triple\": [\"<subj> X <obj> Y <rel> Z\", ...]}",
+  "strategy": "DIYPromptABC with build_system_prompt + build_prompt(text, entities)",
+  "reason": "算子调用 build_prompt(text) 和 build_system_prompt(ontology)，入参与契约一致",
   "static_checks": [
-    "No extra placeholders",
-    "Tone matches professional definition",
-    "Character limit is verifiable in Stage 2 walkthrough"
+    "operator_interface_aligned",
+    "no_invented_params",
+    "output_schema_explicit",
+    "kg_tag_format_correct"
   ]
 }
 ```
 
-Key rules:
-- `prompt_template_type_aligned` must match the target operator's contract — types cannot be mixed
-- Every item in `static_checks` must be individually verified in the Stage 2 acceptance walkthrough
-- Argument mapping must fully cover all fields listed in `Arguments` — no omissions allowed
+**Stage 2 产物（5 段）**
+
+1. Requirement Mapping — 输入字段映射与推断项说明
+2. Prompt Design Summary — 结构、边界策略、失败处理
+3. Prompt Template Code — 完整 Python 类代码
+4. Operator Integration Snippet + Walkthrough — 集成示例与样例走查
+5. Static Acceptance Result — 逐项 Checklist 结果与剩余风险
+
+### 支持的 KG 算子类别
+
+| KG 类别 | 代表算子 |
+|---|---|
+| `GENERAL_KG` | `KGEntityExtraction`、`KGTripleExtraction`、`KGRelationTripleInference` 等 |
+| `TEMPORAL_KG` | `TKGTupleExtraction`、`TKGTuplePathQAGeneration` |
+| `HYPER_RELATION_KG` | `HRKGTripleExtraction`、`HRKGRelationTriplePathQAGeneration` |
+| `GRAPH_RAG` | `GraphRAGGetAnswer`、`GraphRAGQueryExtraction` 等 |
+| `COMMONSENSE_KG` | `CSKGTripleExtraction` |
+| Domain KG | `FinKG*`、`MedKG*`、`GeoKG*`、`LegalKG*`、`SchoKG*` |
+
+### Prompt 类规范
+
+```python
+from dataflow.utils.registry import PROMPT_REGISTRY
+from dataflow.core.prompt import DIYPromptABC
+
+__all__ = ["MyKGPrompt"]
+
+@PROMPT_REGISTRY.register()
+class MyKGPrompt(DIYPromptABC):
+    def __init__(self, lang: str = "zh"):
+        self.lang = lang
+
+    def build_system_prompt(self) -> str:
+        # 角色 + KG 格式规则 + 输出 schema
+        ...
+
+    def build_prompt(self, text: str) -> str:
+        # 将输入字段嵌入 user prompt
+        ...
+```
+
+核心规则：
+- 必须继承 `DIYPromptABC`，加 `@PROMPT_REGISTRY.register()` 装饰器
+- `build_system_prompt()` 无参数（由算子调用），`build_prompt(**fields)` 参数与算子调用契约一致
+- KG 三元组输出统一使用 `<subj>`/`<obj>`/`<rel>` 标签字符串格式
+- `build_prompt` 中引用的所有变量必须来自显式参数，禁止引用未声明变量
 
 ---
 
-## `dataflow-dev`
+## 上游仓库
 
-A DataFlow developer expert skill that loads full architecture knowledge and routes to seven specialized workflows — from creating operators and pipelines to diagnosing errors, reviewing code, and syncing the knowledge base when the upstream repo changes.
-
-### What It Does
-
-When you invoke `/dataflow-dev` inside a DataFlow repository, the skill:
-
-1. Loads `context/knowledge_base.md` — architecture, API reference, all registered operators
-2. Loads `context/dev_notes.md` — coding standards, best practices, LLM response templates
-3. Loads `diagnostics/known_issues.md` — structured symptom → root cause → fix database
-4. Probes the local repo state (`git branch`, `git log`, `git diff`)
-5. Reports a 1–3 line context summary, then routes to the appropriate workflow
-
-### Quick Start
-
-#### 1. Add the Skill
-
-```bash
-git clone https://github.com/haolpku/DataFlow-Skills.git
-
-# Project-level
-cp -r DataFlow-Skills/dataflow-dev .claude/skills/dataflow-dev
-
-# Or personal-level
-cp -r DataFlow-Skills/dataflow-dev ~/.claude/skills/dataflow-dev
-```
-
-#### 2. Open a DataFlow Repo
-
-```bash
-cd /path/to/DataFlow    # must be the repo root
-claude                  # launch Claude Code
-```
-
-#### 3. Invoke the Skill
-
-```
-/dataflow-dev
-I need a new filter operator that removes texts shorter than N words.
-```
-
-The skill detects your intent, checks for duplicate operators, asks for spec details in a single round, then generates fully compliant code.
-
-### Seven Sub-Command Workflows
-
-| Intent keywords | Workflow |
-|---|---|
-| new operator / create operator / 新建算子 | Operator creation (duplicate check → spec confirmation → code generation → registration reminder) |
-| new pipeline / 新建 Pipeline | Pipeline creation (operator selection → code generation with `storage.step()` pattern) |
-| new prompt / 新建 Prompt | Prompt creation (PromptABC or DIYPromptABC, registry decorator, `@prompt_restrict` placement) |
-| error / KeyError / AttributeError / Warning / 报错 | Diagnosis (match known_issues.md → root cause + fix code) |
-| review / check / 规范审查 | Code review (operator and pipeline checklists, 14-point validation) |
-| sync / check updates / 仓库有新算子 | Knowledge base update (detect new operator files, compare against knowledge_base.md, emit update steps) |
-
-### Operator Creation Checklist
-
-Every generated operator is validated against these hard rules before output:
-
-```
-✓ Inherits OperatorABC, calls super().__init__()
-✓ @OPERATOR_REGISTRY.register() decorator on the class
-✓ run() parameter naming: input_* / output_* / storage
-✓ run() returns list of output key names
-✓ storage.read() and storage.write() both present
-✓ LLM-driven operators: member variable named self.llm_serving
-✓ Full per-row try/except with sensible defaults on LLM failure
-✓ CoT model outputs: <think> tags stripped where needed
-✓ @staticmethod get_desc(lang: str = "zh") supporting zh/en
-✓ __init__.py TYPE_CHECKING block registration
-```
-
-### Diagnostics Quick Reference
-
-| Error keyword | Issue |
-|---|---|
-| `Unexpected key 'xxx' in operator` | #001 — config param naming (warning only, not an error) |
-| `No object named 'Xxx' found in 'operators' registry` | #002 — missing `__init__.py` TYPE_CHECKING entry |
-| `Key Matching Error` / `does not match any output keys` | #003 — pipeline key mismatch |
-| `You must call storage.step() before` | #004 — missing `storage.step()` call |
-| `DummyStorage` + `AttributeError` | #005 — DummyStorage API limitations |
-| `AttributeError: 'NoneType'` + `re.split` | #006 — capturing group in `re.split()` pattern |
-| `@prompt_restrict` not taking effect | #007 — decorator placement must be adjacent to class definition |
-
-Full root-cause analysis and fix examples are in `diagnostics/known_issues.md`.
-
-### Knowledge Base Update Flow
-
-When the upstream repo (`OpenDCAI/DataFlow`) merges new operator PRs:
-
-```bash
-# Check upstream merged PRs
-gh pr list --repo OpenDCAI/DataFlow --state merged --limit 20
-
-# Detect newly added operator files in local repo (last 30 commits)
-git log --oneline --diff-filter=A -- 'dataflow/operators/**/*.py' | head -30
-
-# Or run the bundled helper script
-bash .claude/skills/dataflow-dev/scripts/check_updates.sh /path/to/DataFlow
-```
-
-The script outputs: new operator files, all registered operator names, operators missing from `knowledge_base.md`, and recent upstream PRs/Issues — with a step-by-step update guide.
-
-### File Structure
-
-```
-dataflow-dev/
-├── SKILL.md                        # Skill definition & sub-command routing
-├── context/
-│   ├── knowledge_base.md           # Architecture, API reference, all operators (read-only)
-│   └── dev_notes.md                # Coding standards, best practices (appendable)
-├── diagnostics/
-│   └── known_issues.md             # Structured Issue database #001–#008
-├── templates/
-│   ├── operator_template.py        # Operator scaffold
-│   ├── pipeline_template.py        # Pipeline scaffold
-│   └── prompt_template.py          # Prompt scaffold
-└── scripts/
-    └── check_updates.sh            # Repo change detection & knowledge base diff
-```
-
-### Upstream Repository
-
-All knowledge in this skill is aligned to **[OpenDCAI/DataFlow](https://github.com/OpenDCAI/DataFlow)** (`main` branch, v1.0.10).
+所有 Skills 中的知识对齐自 **[OpenDCAI/DataFlow-KG](https://github.com/OpenDCAI/DataFlow-KG)**（`main` 分支）。
