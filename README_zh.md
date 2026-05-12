@@ -2,8 +2,6 @@
 
 用于 DataFlow-KG 知识图谱工作流的可复用 Agent Skills。
 
-中文文档: [README_zh.md](./README_zh.md) | English version: [README.md](./README.md)
-
 ---
 
 ## 概览
