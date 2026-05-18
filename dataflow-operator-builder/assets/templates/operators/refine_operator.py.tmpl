@@ -1,0 +1,164 @@
+import json
+import re
+from typing import Any
+
+import pandas as pd
+
+from dataflow.core import OperatorABC[[IF_USES_LLM]], LLMServingABC[[END_IF_USES_LLM]]
+[[IF_HAS_PROMPT_IMPORT]]
+from dataflow.core.prompt import DIYPromptABC, prompt_restrict
+{{PROMPT_IMPORT_STATEMENT}}
+[[END_IF_HAS_PROMPT_IMPORT]]
+from dataflow.utils.registry import OPERATOR_REGISTRY
+from dataflow.utils.storage import DataFlowStorage
+
+
+[[IF_HAS_PROMPT_RESTRICT]]
+@prompt_restrict({{PROMPT_CLASS_NAME}})
+[[END_IF_HAS_PROMPT_RESTRICT]]
+@OPERATOR_REGISTRY.register()
+class {{OPERATOR_CLASS_NAME}}(OperatorABC):
+    """Generated DataFlow-KG refine operator scaffold."""
+
+    def __init__(
+        self[[IF_USES_LLM]],
+[[IF_USES_LLM]]
+        llm_serving: LLMServingABC,
+        lang: str = "{{LANG}}",
+[[IF_HAS_PROMPT_IMPORT]]
+        prompt_template: DIYPromptABC | None = None,
+[[END_IF_HAS_PROMPT_IMPORT]]
+[[END_IF_USES_LLM]]
+    ):
+        super().__init__()
+[[IF_USES_LLM]]
+        self.llm_serving = llm_serving
+        self.lang = lang
+[[IF_HAS_PROMPT_IMPORT]]
+        self.prompt_template = prompt_template or {{PROMPT_CLASS_NAME}}(lang=lang)
+[[END_IF_HAS_PROMPT_IMPORT]]
+[[END_IF_USES_LLM]]
+
+    @staticmethod
+    def get_desc(lang: str = "en") -> tuple:
+        if lang == "zh":
+            return (
+                "{{FUNCTION_DESCRIPTION_ZH}}",
+                "对 KG 结果做规范化、对齐或改进处理。",
+                "输入列 {{INPUT_KEY}}，输出列 {{OUTPUT_KEY}}。",
+            )
+        return (
+            "{{FUNCTION_DESCRIPTION_EN}}",
+            "Refines, normalizes, or enriches KG values for downstream use.",
+            "Takes {{INPUT_KEY}} as input and writes {{OUTPUT_KEY}} as output.",
+        )
+
+    def _validate_dataframe(self, dataframe: pd.DataFrame) -> None:
+        required_keys = [self.input_key[[IF_HAS_META_INPUT]], self.input_key_meta[[END_IF_HAS_META_INPUT]]]
+        forbidden_keys = [self.output_key]
+
+        missing = [key for key in required_keys if key not in dataframe.columns]
+        conflict = [key for key in forbidden_keys if key in dataframe.columns]
+
+        if missing:
+            raise ValueError(f"Missing required column(s): {missing}")
+        if conflict:
+            raise ValueError(
+                f"The following column(s) already exist and would be overwritten: {conflict}"
+            )
+
+    [[IF_USES_LLM]]
+    def _build_user_input(self, value: Any[[IF_HAS_META_INPUT]], meta_value: Any[[END_IF_HAS_META_INPUT]]) -> str:
+    [[IF_HAS_PROMPT_IMPORT]]
+        [[IF_HAS_META_INPUT]]
+        return self.prompt_template.build_prompt(value, meta_value)
+        [[END_IF_HAS_META_INPUT]]
+        [[IF_NOT_HAS_META_INPUT]]
+        return self.prompt_template.build_prompt(value)
+        [[END_IF_NOT_HAS_META_INPUT]]
+    [[END_IF_HAS_PROMPT_IMPORT]]
+    [[IF_NOT_HAS_PROMPT_IMPORT]]
+        [[IF_HAS_META_INPUT]]
+        return f"Primary input: {value}\nAux input: {meta_value}"
+        [[END_IF_HAS_META_INPUT]]
+        [[IF_NOT_HAS_META_INPUT]]
+        return str(value)
+        [[END_IF_NOT_HAS_META_INPUT]]
+    [[END_IF_NOT_HAS_PROMPT_IMPORT]]
+
+    def _parse_llm_response(self, response: Any) -> Any:
+        if response is None:
+            return []
+        if not isinstance(response, str):
+            return response
+        cleaned = re.sub(r"```json|```", "", response).strip()
+        if not cleaned:
+            return []
+        try:
+            return json.loads(cleaned)
+        except Exception:
+            return cleaned
+    [[END_IF_USES_LLM]]
+
+    [[IF_NOT_USES_LLM]]
+    def _transform_value(self, value: Any[[IF_HAS_META_INPUT]], meta_value: Any[[END_IF_HAS_META_INPUT]]) -> Any:
+        [[IF_HAS_META_INPUT]]
+        return {"refined_value": value, "meta": meta_value}
+        [[END_IF_HAS_META_INPUT]]
+        [[IF_NOT_HAS_META_INPUT]]
+        return value
+        [[END_IF_NOT_HAS_META_INPUT]]
+    [[END_IF_NOT_USES_LLM]]
+
+    def run(
+        self,
+        storage: DataFlowStorage,
+        input_key: str = "{{INPUT_KEY}}",
+[[IF_HAS_META_INPUT]]
+        input_key_meta: str = "{{INPUT_KEY_META}}",
+[[END_IF_HAS_META_INPUT]]
+        output_key: str = "{{OUTPUT_KEY}}",
+    ) -> list[str]:
+        self.input_key = input_key
+[[IF_HAS_META_INPUT]]
+        self.input_key_meta = input_key_meta
+[[END_IF_HAS_META_INPUT]]
+        self.output_key = output_key
+
+        dataframe = storage.read("dataframe")
+        self._validate_dataframe(dataframe)
+
+        values = dataframe[self.input_key].tolist()
+[[IF_HAS_META_INPUT]]
+        meta_values = dataframe[self.input_key_meta].tolist()
+[[END_IF_HAS_META_INPUT]]
+        outputs = []
+
+[[IF_USES_LLM]]
+        for index, value in enumerate(values):
+[[IF_HAS_META_INPUT]]
+            user_input = self._build_user_input(value, meta_values[index])
+[[END_IF_HAS_META_INPUT]]
+[[IF_NOT_HAS_META_INPUT]]
+            user_input = self._build_user_input(value)
+[[END_IF_NOT_HAS_META_INPUT]]
+            responses = self.llm_serving.generate_from_input(
+                user_inputs=[user_input],
+                system_prompt="Return a refined result aligned with the operator output contract.",
+            )
+            parsed = self._parse_llm_response(responses[0] if isinstance(responses, list) and responses else responses)
+            outputs.append(parsed)
+[[END_IF_USES_LLM]]
+[[IF_NOT_USES_LLM]]
+        for index, value in enumerate(values):
+[[IF_HAS_META_INPUT]]
+            outputs.append(self._transform_value(value, meta_values[index]))
+[[END_IF_HAS_META_INPUT]]
+[[IF_NOT_HAS_META_INPUT]]
+            outputs.append(self._transform_value(value))
+[[END_IF_NOT_HAS_META_INPUT]]
+[[END_IF_NOT_USES_LLM]]
+
+        dataframe[self.output_key] = outputs
+        storage.write(dataframe)
+        return [output_key]

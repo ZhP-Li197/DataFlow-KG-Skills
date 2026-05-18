@@ -1,0 +1,7 @@
+from dataflow.utils.registry import OPERATOR_REGISTRY
+from {{PUBLIC_IMPORT_PATH}} import {{OPERATOR_CLASS_NAME}}
+
+
+def test_registry_resolves_generated_operator():
+    resolved = OPERATOR_REGISTRY.get("{{OPERATOR_CLASS_NAME}}")
+    assert resolved is {{OPERATOR_CLASS_NAME}}

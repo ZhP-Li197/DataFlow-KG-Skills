@@ -1,0 +1,38 @@
+import pandas as pd
+import pytest
+
+from {{PUBLIC_IMPORT_PATH}} import {{OPERATOR_CLASS_NAME}}
+
+
+[[IF_USES_LLM]]
+class _DummyLLM:
+    def generate_from_input(self, user_inputs, system_prompt, json_schema=None):
+        return ["[]"]
+[[END_IF_USES_LLM]]
+
+
+def _build_operator():
+[[IF_USES_LLM]]
+    return {{OPERATOR_CLASS_NAME}}(llm_serving=_DummyLLM())
+[[END_IF_USES_LLM]]
+[[IF_NOT_USES_LLM]]
+    return {{OPERATOR_CLASS_NAME}}()
+[[END_IF_NOT_USES_LLM]]
+
+
+def test_get_desc_returns_tuple():
+    desc = {{OPERATOR_CLASS_NAME}}.get_desc("en")
+    assert isinstance(desc, tuple)
+    assert len(desc) == 3
+
+
+def test_validate_dataframe_checks_missing_columns():
+    operator = _build_operator()
+    operator.input_key = "{{INPUT_KEY}}"
+[[IF_HAS_META_INPUT]]
+    operator.input_key_meta = "{{INPUT_KEY_META}}"
+[[END_IF_HAS_META_INPUT]]
+    operator.output_key = "{{OUTPUT_KEY}}"
+
+    with pytest.raises(ValueError):
+        operator._validate_dataframe(pd.DataFrame())
