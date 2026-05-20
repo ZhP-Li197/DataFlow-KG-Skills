@@ -12,6 +12,7 @@
 |---|---|---|
 | `generating-dataflow-kg-pipeline` | `/generating-dataflow-kg-pipeline` | 从任务描述生成完整 KG Pipeline 代码 |
 | `core_kg` | 被 Pipeline 生成器加载 | 所有核心 KG 算子的 API 参考文档 |
+| `dataflow-operator-builder` | `/dataflow-operator-builder` | 为 DataFlow-KG 生成新算子骨架、注册补丁和基线测试 |
 | `dataflow-kg-dev` | `/dataflow-dev` | KG 算子/Pipeline/Prompt 开发专家 |
 | `prompt-template-builder` | `/prompt-template-builder` | 为 KG 算子生成 DIYPromptABC 模板类 |
 
@@ -49,6 +50,7 @@ mkdir -p ~/.claude/skills   # 个人级，所有项目可用
 # 按需复制所需 skill
 cp -r DataFlow-KG-Skills/generating-dataflow-kg-pipeline ~/.claude/skills/
 cp -r DataFlow-KG-Skills/core_kg                         ~/.claude/skills/
+cp -r DataFlow-KG-Skills/dataflow-operator-builder      ~/.claude/skills/
 cp -r DataFlow-KG-Skills/dataflow-kg-dev                 ~/.claude/skills/
 cp -r DataFlow-KG-Skills/prompt-template-builder         ~/.claude/skills/
 ```
@@ -219,6 +221,70 @@ if __name__ == "__main__":
 | `subgraph` | `List[str]` | 采样算子 |
 | `{k}_hop_paths` | `List[str]`（如 `2_hop_paths`） | `KGRelationTuplePathGenerator` |
 | `QA_pairs` | `List[Dict]` | 所有 `*QAGeneration` 算子 |
+
+---
+
+## `dataflow-operator-builder`
+
+面向 `DataFlow-KG` 的算子脚手架构建工具，用于生成新的 `generate / filter / eval / refine` 算子初稿，并同步补齐父模块注册和三类基线测试。
+
+### 功能说明
+
+给定 **算子规格** 后，该 Skill 将：
+
+1. 校验 KG 模块、算子类型、输入输出字段和 LLM 依赖
+2. 按 `DataFlow-KG` 真实目录生成算子
+3. 更新或创建对应 KG 模块的 `__init__.py`，补写 `TYPE_CHECKING` import
+4. 生成 `unit / registry / smoke` 三类基线测试
+5. 支持 `--dry-run` 先预览文件计划，再正式写入
+
+### 快速上手
+
+#### 方式 A：自然语言描述需求
+
+不要只输入文件夹名，建议同时提供目标与约束：
+
+```
+/dataflow-operator-builder
+目标：新增一个过滤 KG 三元组的算子
+类型：filter
+模块：general_kg
+输入：triple
+输出：valid_triple
+要求：过滤掉实体数量少于 3 的三元组
+```
+
+#### 方式 B：Direct Spec
+
+```
+/dataflow-operator-builder --spec path/to/spec.json --output-root /path/to/DataFlow-KG
+```
+
+示例 spec：
+
+```json
+{
+  "kg_module": "general_kg",
+  "operator_type": "filter",
+  "operator_class_name": "KGEntityCountFilter",
+  "operator_module_name": "kg_entity_count_filtering",
+  "input_key": "triple",
+  "output_key": "valid_triple",
+  "uses_llm": false
+}
+```
+
+### 生成产物
+
+```text
+<output-root>/
+├── dataflow/operators/<kg path>/<operator dir>/<operator_module_name>.py
+├── dataflow/operators/<kg path>/__init__.py
+└── test/cpu_only/
+    ├── test_<prefix>_unit.py
+    ├── test_<prefix>_registry.py
+    └── test_<prefix>_smoke.py
+```
 
 ---
 
