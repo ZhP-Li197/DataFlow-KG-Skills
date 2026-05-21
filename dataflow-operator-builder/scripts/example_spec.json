@@ -1,0 +1,14 @@
+{
+  "kg_module": "general_kg",
+  "operator_type": "filter",
+  "operator_class_name": "KGEntityCountFilter",
+  "operator_module_name": "kg_entity_count_filtering",
+  "input_key": "triple",
+  "output_key": "valid_triple",
+  "uses_llm": false,
+  "function_description": "Filter out KG rows whose triples contain too few entities.",
+  "lang": "en",
+  "test_file_prefix": "kg_entity_count_filtering",
+  "overwrite_strategy": "ask-each",
+  "validation_level": "full"
+}
